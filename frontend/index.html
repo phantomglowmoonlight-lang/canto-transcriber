@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>廣東話會議錄音轉文字</title>
+<style>
+/* ═══════════════════════════════════════════
+   Design Tokens
+   ═══════════════════════════════════════════ */
+:root {
+  --primary: #2563EB; --primary-light: #EBF5FB; --primary-dark: #1D4ED8;
+  --success: #16A34A; --warning: #EA580C; --danger: #DC2626;
+  --cut: #DC2626;
+  --text: #1E293B; --text2: #64748B; --text3: #94A3B8;
+  --border: #E2E8F0; --bg: #F8FAFC; --surface: #FFFFFF;
+  --highlight: #FFF8E1; --playmark: #DBEAFE;
+  --xs: 4px; --sm: 8px; --md: 16px; --lg: 24px; --xl: 32px;
+  --radius: 8px; --radius-sm: 4px;
+  font-family: system-ui, -apple-system, "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-size:14px; line-height:1.6; min-height:100vh; }
+button { cursor:pointer; font-family:inherit; font-size:13px; border:none; border-radius:var(--radius-sm); padding:6px 14px; transition:all .15s; background:var(--surface); color:var(--text); border:1px solid var(--border); }
+button:hover:not(:disabled) { background:var(--bg); }
+button:disabled { opacity:.4; cursor:not-allowed; }
+button.primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+button.primary:hover:not(:disabled) { background:var(--primary-dark); }
+button.danger { background:var(--danger); color:#fff; border-color:var(--danger); }
+button.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+button.icon { border:none; background:none; padding:4px 6px; font-size:16px; }
+input,select,textarea { font-family:inherit; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 10px; outline:none; background:var(--surface); }
+input:focus,select:focus { border-color:var(--primary); box-shadow:0 0 0 2px var(--primary-light); }
+.hidden { display:none !important; }
+.flex { display:flex; }
+.flex-1 { flex:1; }
+.gap-sm { gap:var(--sm); }
+.gap-md { gap:var(--md); }
+.items-center { align-items:center; }
+.text-center { text-align:center; }
+.text-sm { font-size:12px; }
+.text-muted { color:var(--text2); }
+.mb-md { margin-bottom:var(--md); }
+
+/* Toast */
+#toast { position:fixed; bottom:24px; right:24px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
+.toast { padding:10px 18px; border-radius:var(--radius); background:var(--surface); box-shadow:0 4px 16px rgba(0,0,0,.12); font-size:13px; animation:slideIn .3s ease; max-width:360px; border-left:3px solid var(--primary); }
+.toast.err { border-left-color:var(--danger); }
+.toast.warn { border-left-color:var(--warning); }
+@keyframes slideIn { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+
+/* Modal */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:100; display:flex; align-items:center; justify-content:center; }
+.modal { background:var(--surface); border-radius:var(--radius); box-shadow:0 8px 32px rgba(0,0,0,.15); max-width:520px; width:92%; max-height:85vh; overflow-y:auto; }
+.modal-header { padding:14px 20px; border-bottom:1px solid var(--border); font-size:16px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+.modal-body { padding:20px; }
+.modal-footer { padding:14px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; }
+.form-group { margin-bottom:14px; }
+.form-group label { display:block; font-size:12px; font-weight:500; margin-bottom:4px; color:var(--text2); }
+.form-group input[type=text], .form-group input[type=number] { width:100%; }
+.form-group input[type=time] { width:140px; }
+
+/* Upload */
+.upload-page { max-width:480px; margin:60px auto 0; text-align:center; }
+.upload-page h1 { font-size:24px; margin-bottom:6px; }
+.drop-zone { border:2px dashed var(--border); border-radius:var(--radius); padding:40px 24px; margin-bottom:20px; transition:all .2s; background:var(--surface); cursor:pointer; }
+.drop-zone.drag-over { border-color:var(--primary); background:var(--primary-light); }
+.drop-zone .icon { font-size:36px; margin-bottom:8px; }
+.drop-zone .link { color:var(--primary); cursor:pointer; text-decoration:underline; }
+
+/* Processing */
+.processing-page { max-width:520px; margin:60px auto 0; text-align:center; }
+.pbar-outer { width:100%; height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin:12px 0; }
+.pbar-inner { height:100%; background:var(--primary); border-radius:3px; transition:width .3s; }
+.proc-steps { text-align:left; background:var(--surface); border-radius:var(--radius); border:1px solid var(--border); padding:14px 18px; }
+.proc-step { padding:4px 0; font-size:13px; display:flex; align-items:center; gap:8px; }
+.proc-step.done { color:var(--success); }
+.proc-step.active { color:var(--primary); font-weight:500; }
+.proc-step.wait { color:var(--text3); }
+
+/* Workspace */
+.workspace { display:flex; flex-direction:column; height:100vh; }
+.toolbar { display:flex; align-items:center; gap:10px; padding:6px 16px; background:var(--surface); border-bottom:1px solid var(--border); height:44px; flex-shrink:0; position:relative; }
+.toolbar .spacer { flex:1; }
+
+/* Waveform */
+.waveform-area { background:var(--surface); border-bottom:1px solid var(--border); position:relative; cursor:default; }
+.waveform-area.cut-mode { cursor:crosshair; }
+.waveform-canvas { display:block; width:100%; }
+.waveform-controls { display:flex; align-items:center; gap:6px; padding:2px 12px 4px; }
+.waveform-controls button { font-size:11px; padding:2px 8px; }
+.cut-marker { position:absolute; top:0; width:2px; height:100%; background:var(--cut); cursor:ew-resize; z-index:10; }
+.cut-label { position:absolute; top:2px; left:-10px; font-size:10px; font-weight:600; color:#fff; background:var(--cut); padding:0 4px; border-radius:2px; pointer-events:none; }
+.cut-seg-preview { position:absolute; top:0; height:100%; pointer-events:none; z-index:3; font-size:10px; color:var(--text2); display:flex; align-items:flex-end; justify-content:center; padding-bottom:2px; }
+.playhead { position:absolute; top:0; width:2px; height:100%; background:var(--primary); z-index:5; pointer-events:none; }
+.playhead::after { content:""; position:absolute; top:-6px; left:-5px; width:12px; height:12px; background:var(--primary); border-radius:50%; }
+
+/* Main area */
+.workspace-main { display:flex; flex:1; overflow:hidden; }
+.seg-panel { flex:7; display:flex; flex-direction:column; overflow:hidden; }
+.view-toggle { display:flex; padding:6px 12px; border-bottom:1px solid var(--border); background:var(--surface); gap:0; }
+.view-toggle button { border-radius:0; border:1px solid var(--border); margin-left:-1px; font-size:12px; padding:4px 14px; }
+.view-toggle button:first-child { border-radius:var(--radius-sm) 0 0 var(--radius-sm); margin-left:0; }
+.view-toggle button:last-child { border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+.seg-list { flex:1; overflow-y:auto; }
+.seg-row { display:flex; align-items:flex-start; padding:8px 14px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .12s; gap:8px; }
+.seg-row:hover { background:var(--bg); }
+.seg-row.sel { background:var(--primary-light); }
+.seg-row.playing { background:var(--playmark); border-left:3px solid var(--primary); padding-left:11px; }
+.seg-row .sel-box { width:16px; height:16px; border:2px solid var(--border); border-radius:2px; flex-shrink:0; margin-top:3px; display:flex; align-items:center; justify-content:center; font-size:9px; color:#fff; }
+.seg-row.sel .sel-box { background:var(--primary); border-color:var(--primary); }
+.seg-row .seg-body { flex:1; min-width:0; }
+.seg-row .seg-meta { display:flex; align-items:center; gap:6px; margin-bottom:2px; }
+.seg-row .seg-ts { font-size:11px; color:var(--primary); cursor:pointer; white-space:nowrap; }
+.seg-row .seg-spk { font-size:11px; padding:1px 7px; border-radius:10px; font-weight:500; }
+.seg-row .seg-text { font-size:14px; line-height:1.5; word-break:break-word; }
+.seg-row .seg-written { font-size:13px; color:var(--text2); font-style:italic; margin-top:3px; padding-left:8px; border-left:2px solid var(--border); }
+.seg-row .seg-status { font-size:11px; margin-top:2px; }
+.seg-row .seg-status.done { color:var(--success); }
+.seg-row .seg-status.fail { color:var(--danger); }
+.seg-row .seg-status.wait { color:var(--text3); }
+
+/* Speaker panel */
+.spk-panel { flex:3; min-width:220px; max-width:380px; background:var(--surface); border-left:1px solid var(--border); padding:14px; overflow-y:auto; }
+.spk-panel h3 { font-size:13px; color:var(--text2); margin-bottom:10px; }
+.spk-card { margin-bottom:10px; padding:10px; background:var(--bg); border-radius:var(--radius-sm); }
+.spk-card .spk-id { font-size:12px; font-weight:500; }
+.spk-card .spk-count { font-size:11px; color:var(--text2); margin-bottom:6px; }
+.spk-card input { width:100%; }
+
+/* Audio bar */
+.audio-bar { display:flex; align-items:center; gap:10px; padding:6px 16px; background:var(--surface); border-top:1px solid var(--border); height:56px; flex-shrink:0; }
+.audio-bar .time { font-size:12px; color:var(--text2); white-space:nowrap; min-width:100px; text-align:center; }
+.audio-bar .seek { flex:1; }
+.audio-bar .seek input { width:100%; height:4px; -webkit-appearance:none; appearance:none; background:var(--border); border-radius:2px; outline:none; cursor:pointer; }
+.audio-bar .seek input::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--primary); cursor:pointer; }
+.audio-bar .controls { display:flex; gap:4px; }
+
+/* Batch STT */
+.batch-stt-overlay { position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:50; display:flex; align-items:center; justify-content:center; }
+.batch-stt-card { background:var(--surface); border-radius:var(--radius); box-shadow:0 8px 32px rgba(0,0,0,.15); padding:24px; max-width:480px; width:90%; }
+.batch-stt-card h3 { font-size:16px; margin-bottom:12px; }
+.batch-stt-item { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13px; }
+.batch-stt-item .icon { width:18px; text-align:center; font-size:13px; }
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin .6s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════
+const API = '/v1';
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body && !(body instanceof FormData)) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (body instanceof FormData) {
+    opts.body = body;
+  }
+  const res = await fetch(API + path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || '請求失敗');
+  }
+  if (res.headers.get('content-type')?.includes('application/json')) {
+    return res.json();
+  }
+  return res;
+}
+
+// ═══════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════
+const S = {
+  page: 'upload',
+  taskId: null,
+  task: null,
+  segments: [],
+  spkMap: {},
+  selected: new Set(),
+  viewMode: 'original',
+  audioEl: null,
+  audioUrl: null,
+  audioReady: false,
+  playingId: null,
+  waveformPeaks: [],
+  zoomStart: 0,
+  zoomEnd: 1,
+  cutMode: false,
+  cutPoints: [],
+  _dragPointIdx: -1,
+  batchRunning: false,
+  batchPaused: false,
+  batchSegIdx: 0,
+};
+
+// ═══════════════════════════════════════════
+// Toast
+// ═══════════════════════════════════════════
+function toast(msg, cls) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (cls ? ' ' + cls : '');
+  el.textContent = msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
+
+// ═══════════════════════════════════════════
+// Formatting
+// ═══════════════════════════════════════════
+function fmtTime(sec) {
+  if (!sec && sec !== 0) return '--:--';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+function fmtSize(bytes) {
+  if (bytes > 1e9) return (bytes / 1e9).toFixed(2) + ' GB';
+  if (bytes > 1e6) return (bytes / 1e6).toFixed(1) + ' MB';
+  return (bytes / 1e3).toFixed(0) + ' KB';
+}
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ═══════════════════════════════════════════
+// Cache helpers
+// ═══════════════════════════════════════════
+function cacheGet(k) { try { return localStorage.getItem('ct_' + k); } catch { return null; } }
+function cacheSet(k, v) { try { localStorage.setItem('ct_' + k, v); } catch {} }
+function cacheDel(k) { try { localStorage.removeItem('ct_' + k); } catch {} }
+
+// ═══════════════════════════════════════════
+// Navigation
+// ═══════════════════════════════════════════
+function navigate(page) {
+  S.page = page;
+  cacheSet('page', page);
+  if (page !== 'workspace') {
+    if (S.audioUrl) { URL.revokeObjectURL(S.audioUrl); S.audioUrl = null; S.audioEl = null; S.audioReady = false; }
+  }
+  if (page === 'upload') renderUpload();
+  else if (page === 'processing') renderProcessing();
+  else if (page === 'workspace') renderWorkspace();
+}
+
+function renderProcessing() {
+  document.getElementById('app').innerHTML = `
+    <div class="processing-page">
+      <h2>處理中...</h2>
+      <div class="pbar-outer"><div class="pbar-inner" id="pbar" style="width:0%"></div></div>
+      <p class="text-muted" id="proc-msg">正在準備...</p>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════
+// Upload Page
+// ═══════════════════════════════════════════
+let _pendingFile = null;
+
+function renderUpload() {
+  document.getElementById('app').innerHTML = `
+    <div class="upload-page">
+      <h1>🎙️ 廣東話會議錄音轉文字</h1>
+      <p class="text-muted mb-md">上傳錄音檔，自動轉寫為文字記錄</p>
+      <div class="drop-zone" id="drop-zone">
+        <div class="icon">📁</div>
+        <div>拖放音檔至此處</div>
+        <div class="text-sm text-muted">或 <span class="link" id="pick-file">選取檔案</span></div>
+        <div class="text-sm text-muted" style="margin-top:4px;">支援 MP3 / WAV / M4A / OGG / FLAC / AAC</div>
+      </div>
+      <div id="file-info" class="hidden" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:16px;text-align:left;"></div>
+      <div id="upload-actions" class="hidden">
+        <button class="primary" id="btn-start">下一步</button>
+        <button id="btn-clear" style="margin-left:8px;">清除</button>
+      </div>
+    </div>
+  `;
+
+  const dz = document.getElementById('drop-zone');
+  const pick = document.getElementById('pick-file');
+
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag-over'); handleFile(e.dataTransfer.files[0]); });
+  pick.addEventListener('click', () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.mp3,.wav,.m4a,.ogg,.flac,.aac';
+    inp.addEventListener('change', () => { if (inp.files[0]) handleFile(inp.files[0]); });
+    inp.click();
+  });
+  document.getElementById('btn-start')?.addEventListener('click', () => confirmUpload());
+  document.getElementById('btn-clear')?.addEventListener('click', () => {
+    _pendingFile = null;
+    document.getElementById('file-info').classList.add('hidden');
+    document.getElementById('upload-actions').classList.add('hidden');
+  });
+}
+
+async function handleFile(file) {
+  if (!file) return;
+  _pendingFile = file;
+
+  const di = document.getElementById('file-info');
+  let durText = '計算中...';
+  try {
+    const dur = await getFileDuration(file);
+    durText = fmtTime(dur) + `（約 ${Math.round(dur / 60)} 分鐘）`;
+  } catch { durText = '無法讀取'; }
+
+  di.innerHTML = `
+    <div><strong>檔案名稱：</strong>${esc(file.name)}</div>
+    <div><strong>檔案大小：</strong>${fmtSize(file.size)}</div>
+    <div><strong>時長：</strong>${durText}</div>
+    <div><strong>格式：</strong>${file.type || file.name.split('.').pop().toUpperCase()}</div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--text2);">
+      上傳後可在工作區手動切割或自動分段，再進行批量語音轉文字。
+    </div>
+  `;
+  di.classList.remove('hidden');
+  document.getElementById('upload-actions').classList.remove('hidden');
+}
+
+function getFileDuration(file) {
+  return new Promise((resolve, reject) => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const buf = await ctx.decodeAudioData(e.target.result);
+        resolve(buf.duration);
+      } catch { reject(); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function confirmUpload() {
+  if (!_pendingFile) return toast('請選取音檔', 'warn');
+  const fd = new FormData();
+  fd.append('audio', _pendingFile);
+
+  S.page = 'processing';
+  document.getElementById('app').innerHTML = `
+    <div class="processing-page">
+      <h2>載入中...</h2>
+      <div class="pbar-outer"><div class="pbar-inner" id="pbar" style="width:0%"></div></div>
+      <p class="text-muted" id="proc-msg">正在上傳與轉換音檔...</p>
+    </div>
+  `;
+
+  try {
+    const data = await api('POST', '/upload', fd);
+    S.taskId = data.task_id;
+    cacheSet('last_task_id', S.taskId);
+
+    const task = await api('GET', `/tasks/${S.taskId}`);
+    await loadTaskData(task);
+    navigate('workspace');
+  } catch (e) {
+    toast('載入失敗：' + e.message, 'err');
+    navigate('upload');
+  }
+}
+
+async function pollTask(taskId) {
+  let attempts = 0;
+  const poll = async () => {
+    if (S.page !== 'processing' && S.page !== 'workspace') return;
+    try {
+      const task = await api('GET', `/tasks/${taskId}`);
+      S.task = task;
+      const pbar = document.getElementById('pbar');
+      const msg = document.getElementById('proc-msg');
+      if (pbar) pbar.style.width = (task.progress * 100) + '%';
+
+      if (task.status === 'completed') {
+        if (msg) msg.textContent = '轉寫完成！';
+        await loadTaskData(task);
+        navigate('workspace');
+        return;
+      }
+      if (task.status === 'failed') {
+        if (msg) msg.textContent = '處理失敗：' + (task.error || '未知錯誤');
+        return;
+      }
+      if (msg) {
+        const p = task.progress || 0;
+        if (p < 0.1) msg.textContent = '正在準備音檔...';
+        else if (p < 0.8) msg.textContent = '正在語音轉文字...';
+        else msg.textContent = '正在分離說話人...';
+      }
+    } catch (e) {
+      attempts++;
+      if (attempts > 10) {
+        document.getElementById('proc-msg').textContent = '連線失敗：' + e.message;
+        return;
+      }
+    }
+    if (S.page === 'processing') setTimeout(poll, 1000);
+  };
+  poll();
+}
+
+async function loadTaskData(task) {
+  S.task = task;
+  S.segments = task.result?.segments || [];
+  S.spkMap = task.result?.speaker_map || {};
+  S.taskId = task.task_id;
+  cacheSet('last_task_id', S.taskId);
+
+  try {
+    const wf = await api('GET', `/tasks/${S.taskId}/waveform?peaks=2000`);
+    S.waveformPeaks = wf.peaks || [];
+  } catch { S.waveformPeaks = []; }
+}
+
+// ═══════════════════════════════════════════
+// Workspace
+// ═══════════════════════════════════════════
+function renderWorkspace() {
+  const seg = S.segments;
+  const dur = S.task?.audio_duration_sec || 0;
+  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+
+  document.getElementById('app').innerHTML = `
+    <div class="workspace">
+      <div class="toolbar">
+        <button id="btn-new-project" title="新建項目">📂 新建</button>
+        <span class="text-sm text-muted">${esc(S.task?.audio_filename || '')} (${fmtTime(dur)})</span>
+        <span class="spacer"></span>
+        <button id="btn-cut" class="${S.cutMode ? 'active' : ''}" title="切割模式">✂️ 切割</button>
+        <button id="btn-translate" ${!hasSegments()?'disabled':''}>書面語翻譯</button>
+        <button id="btn-report" ${!hasSegments()?'disabled':''}>AI 報告</button>
+        <button id="btn-export" ${!hasSegments()?'disabled':''}>匯出 ⬇</button>
+        <div id="export-menu" class="hidden" style="position:absolute;top:40px;right:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:50;">
+          <button style="display:block;width:100%;text-align:left;border:none;padding:8px 16px;" id="exp-txt">TXT 純文字</button>
+          <button style="display:block;width:100%;text-align:left;border:none;padding:8px 16px;" id="exp-docx">DOCX 文檔</button>
+        </div>
+      </div>
+
+      <div class="waveform-area ${S.cutMode ? 'cut-mode' : ''}" id="waveform-area" style="height:${S.cutMode ? '160' : '120'}px;">
+        <canvas class="waveform-canvas" id="waveform-canvas"></canvas>
+        <div id="cut-markers"></div>
+        <div class="playhead" id="playhead" style="left:0"></div>
+        <div class="waveform-controls">
+          <button id="btn-zoom-out" title="縮小">−</button>
+          <button id="btn-zoom-in" title="放大">+</button>
+          <button id="btn-zoom-reset" title="重設">↺ 重設</button>
+          <span class="spacer"></span>
+          <span id="cut-info" class="text-sm" style="${S.cutMode?'':'display:none;'}color:var(--cut);">
+            切割模式：點擊起點→終點標註時間段（${S.cutPoints.length} 段）
+          </span>
+          <button id="btn-confirm-cut" class="primary" style="${S.cutMode?'':'display:none;'}">✅ 確認切割</button>
+          <button id="btn-cancel-cut" style="${S.cutMode?'':'display:none;'}">取消</button>
+          <button id="btn-undo-cut" style="${S.cutMode && S.cutPoints.length>0?'':'display:none;'}" title="復原上一個切割點 (Ctrl+Z)">↩ 上一步</button>
+          <button id="btn-undo-cut" style="${S.cutMode && S.cutPoints.length>0?'':'display:none;'}" title="復原上一個切割點 (Ctrl+Z)">↩ 上一步</button>
+        </div>
+      </div>
+
+      <div class="workspace-main">
+        <div class="seg-panel">
+          <div class="view-toggle" id="view-toggle">
+            <button class="${S.viewMode==='original'?'active':''}" id="view-orig">原文</button>
+            <button class="${S.viewMode==='written'?'active':''}" id="view-written">書面語</button>
+            <button class="${S.viewMode==='compare'?'active':''}" id="view-compare">對照</button>
+          </div>
+          <div class="seg-list" id="seg-list"></div>
+          <div style="padding:8px 16px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;">
+            <button id="btn-batch-stt" class="primary" style="font-size:14px;padding:8px 20px;${allSttDone()?'display:none':''}">▶ 下一步：批量 STT</button>
+            ${S.cutPoints.length === 0 && S.segments.length === 1 && S.segments[0]?.stt_status === 'pending' ? `
+            <button id="btn-auto-split" class="text-sm" style="font-size:12px;" title="每隔10分鐘自動切一段">⚡ 自動分段（每10分鐘）</button>
+            ` : ''}
+            <button id="btn-add-segment" style="font-size:12px;">＋ 添加時間段</button>
+            <button id="btn-restt-selected" class="${S.selected.size>0?'':'hidden'}" style="font-size:12px;">🔄 重新識別</button>
+            <span class="spacer"></span>
+            <span class="text-sm text-muted" id="batch-hint">${S.segments.filter(s=>s.stt_status==='completed').length}/${S.segments.length} 段已完成</span>
+          </div>
+        </div>
+        <div class="spk-panel" id="spk-panel"></div>
+      </div>
+
+      <div class="audio-bar">
+        <div class="controls">
+          <button class="icon" id="btn-play" title="播放/暫停">▶</button>
+          <button class="icon" id="btn-stop" title="停止">⏹</button>
+        </div>
+        <span class="time" id="time-current">00:00</span>
+        <div class="seek flex-1"><input type="range" id="seek-bar" min="0" max="1000" value="0" step="1"></div>
+        <span class="time" id="time-total">${fmtTime(dur)}</span>
+      </div>
+    </div>
+  `;
+
+  wireToolbar();
+  setupAudio();
+  drawWaveform();
+  drawCutMarkers();
+  updatePlayhead();
+  renderSegments();
+  renderSpeakers();
+  initZoomControls();
+}
+
+function hasSegments() { return S.segments.length > 0; }
+function allSttDone() { return S.segments.length > 0 && S.segments.every(s => s.stt_status === 'completed'); }
+
+// ═══════════════════════════════════════════
+// Toolbar events
+// ═══════════════════════════════════════════
+function wireToolbar() {
+  document.getElementById('btn-new-project')?.addEventListener('click', () => {
+    if (confirm('確定要新建項目嗎？目前的工作將會被清除。')) {
+      S.taskId = null; S.task = null; S.segments = []; S.spkMap = {};
+      S.waveformPeaks = []; S.cutPoints = []; S.cutMode = false;
+      cacheDel('last_task_id');
+      navigate('upload');
+    }
+  });
+
+  document.getElementById('btn-cut')?.addEventListener('click', toggleCutMode);
+  document.getElementById('btn-cancel-cut')?.addEventListener('click', () => {
+    S.cutPoints = [];
+    toggleCutMode();
+  });
+  document.getElementById('btn-undo-cut')?.addEventListener('click', () => undoCutPoint());
+  document.getElementById('btn-undo-cut')?.addEventListener('click', () => undoCutPoint());
+  document.getElementById('btn-confirm-cut')?.addEventListener('click', () => {
+    if (S.cutPoints.length === 0) return toast("請先在波形上點擊標註切割點", "warn");
+    confirmCut();
+  });
+
+  document.getElementById('btn-translate')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-translate');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.innerHTML = '翻譯中 <span class="spinner"></span>';
+    try {
+      const res = await api('POST', `/tasks/${S.taskId}/translate`, { scope: 'all' });
+      if (res.success) {
+        S.segments = res.updated_segments;
+        renderSegments();
+        toast('翻譯完成', '');
+      }
+    } catch (e) { toast(e.message, 'err'); }
+    btn.disabled = false;
+    btn.textContent = '書面語翻譯';
+  });
+
+  document.getElementById('btn-report')?.addEventListener('click', () => openReportModal());
+  document.getElementById('btn-export')?.addEventListener('click', () => {
+    document.getElementById('export-menu').classList.toggle('hidden');
+  });
+  document.getElementById('exp-txt')?.addEventListener('click', () => doExport('txt'));
+  document.getElementById('exp-docx')?.addEventListener('click', () => openExportModal('docx'));
+
+  document.getElementById('view-orig')?.addEventListener('click', () => { S.viewMode = 'original'; refreshSegs(); });
+  document.getElementById('view-written')?.addEventListener('click', () => { S.viewMode = 'written'; refreshSegs(); });
+  document.getElementById('view-compare')?.addEventListener('click', () => { S.viewMode = 'compare'; refreshSegs(); });
+
+  const btnBatch = document.getElementById('btn-batch-stt');
+  if (btnBatch) btnBatch.onclick = () => startBatchStt();
+
+  const btnAuto = document.getElementById('btn-auto-split');
+  if (btnAuto) btnAuto.onclick = () => autoSplit10Min();
+
+  document.getElementById('btn-add-segment')?.addEventListener('click', () => openAddSegmentModal());
+  document.getElementById('btn-restt-selected')?.addEventListener('click', () => reSttSelected());
+}
+
+function refreshSegs() {
+  document.querySelectorAll('#view-toggle button').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + S.viewMode)?.classList.add('active');
+  renderSegments();
+}
+
+// ═══════════════════════════════════════════
+// Audio Player
+// ═══════════════════════════════════════════
+async function setupAudio() {
+  if (!S.audioEl) {
+    S.audioEl = new Audio();
+    S.audioEl.preload = 'auto';
+    S.audioEl.addEventListener('timeupdate', onAudioTimeUpdate);
+    S.audioEl.addEventListener('loadedmetadata', () => {
+      S.audioReady = true;
+      document.getElementById('time-total').textContent = fmtTime(S.audioEl.duration);
+      document.getElementById('seek-bar').max = S.audioEl.duration * 100;
+    });
+    S.audioEl.addEventListener('ended', () => {
+      document.getElementById('btn-play').textContent = '▶';
+      S.playingId = null;
+      updatePlayhead();
+    });
+    S.audioEl.addEventListener('error', () => {
+      toast('音檔載入失敗，請檢查原始檔案是否存在', 'err');
+      S.audioReady = false;
+    });
+  }
+  if (!S.audioUrl) {
+    S.audioUrl = API + `/tasks/${S.taskId}/audio`;
+    S.audioEl.src = S.audioUrl;
+    S.audioEl.load();
+  }
+
+  document.getElementById('btn-play')?.addEventListener('click', togglePlay);
+  document.getElementById('btn-stop')?.addEventListener('click', stopAudio);
+  const seek = document.getElementById('seek-bar');
+  seek?.addEventListener('input', () => {
+    if (S.audioEl && S.audioEl.duration) {
+      S.audioEl.currentTime = seek.value / 100;
+      updatePlayhead();
+    }
+  });
+}
+
+function onAudioTimeUpdate() {
+  if (!S.audioEl || !S.audioEl.duration) return;
+  const t = S.audioEl.currentTime;
+  document.getElementById('time-current').textContent = fmtTime(t);
+  document.getElementById('seek-bar').value = t * 100;
+  updatePlayhead();
+
+  let pid = null;
+  for (const s of S.segments) {
+    if (t >= s.start && t < s.end) { pid = s.id; break; }
+  }
+  if (pid !== S.playingId) {
+    S.playingId = pid;
+    document.querySelectorAll('.seg-row.playing').forEach(r => r.classList.remove('playing'));
+    if (pid !== null) {
+      const row = document.querySelector(`.seg-row[data-sid="${pid}"]`);
+      if (row) { row.classList.add('playing'); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    }
+  }
+}
+
+function togglePlay() {
+  if (!S.audioEl || !S.audioEl.src) {
+    S.audioEl = new Audio();
+    S.audioEl.src = API + `/tasks/${S.taskId}/audio`;
+    S.audioEl.load();
+  }
+  const btn = document.getElementById('btn-play');
+  if (S.audioEl.paused) {
+    S.audioEl.play().then(() => { btn.textContent = '⏸'; }).catch(() => toast('播放失敗', 'warn'));
+  } else {
+    S.audioEl.pause();
+    btn.textContent = '▶';
+  }
+}
+
+function stopAudio() {
+  if (S.audioEl) {
+    S.audioEl.pause();
+    S.audioEl.currentTime = 0;
+    document.getElementById('btn-play').textContent = '▶';
+    document.getElementById('seek-bar').value = 0;
+    document.getElementById('time-current').textContent = '00:00';
+    updatePlayhead();
+  }
+}
+
+// ═══════════════════════════════════════════
+// Waveform
+// ═══════════════════════════════════════════
+function drawWaveform() {
+  // 先設定 canvas 尺寸，確保即使沒有波形資料也能點擊
+  const canvas0 = document.getElementById("waveform-canvas");
+  const area0 = document.getElementById("waveform-area");
+  if (canvas0 && area0) {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = area0.getBoundingClientRect();
+    canvas0.width = rect.width * dpr;
+    canvas0.height = (S.cutMode ? 100 : 80) * dpr;
+    canvas0.style.width = rect.width + 'px';
+    canvas0.style.height = (S.cutMode ? 100 : 80) + 'px';
+  }
+  const canvas = document.getElementById('waveform-canvas');
+  const area = document.getElementById('waveform-area');
+  if (!canvas || !area) return;
+
+  const peaks = S.waveformPeaks;
+  if (!peaks.length) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = area.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = (S.cutMode ? 100 : 80) * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = (S.cutMode ? 100 : 80) + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const w = rect.width;
+  const h = S.cutMode ? 100 : 80;
+  const midY = h * 0.55;
+  const amp = h * 0.35;
+
+  const zStart = Math.floor(S.zoomStart * peaks.length);
+  const zEnd = Math.ceil(S.zoomEnd * peaks.length);
+  const zPeaks = peaks.slice(zStart, zEnd);
+
+  ctx.fillStyle = '#F8FAFC';
+  ctx.fillRect(0, 0, w, h);
+
+  const barW = Math.max(1, w / zPeaks.length);
+  for (let i = 0; i < zPeaks.length; i++) {
+    const x = i * barW;
+    const barH = zPeaks[i] * amp;
+    if (barH < 0.5) continue;
+    ctx.fillStyle = barH > amp * 0.7 ? '#2563EB' : '#93C5FD';
+    ctx.fillRect(x, midY - barH, Math.max(1, barW - 0.5), barH * 2);
+  }
+
+  const dur = S.task?.audio_duration_sec || 0;
+  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+  const zDur = dur * (S.zoomEnd - S.zoomStart);
+  ctx.fillStyle = '#94A3B8';
+  ctx.font = '10px system-ui';
+  const steps = 5;
+  for (let i = 0; i <= steps; i++) {
+    const x = (i / steps) * w;
+    const t = S.zoomStart * dur + (i / steps) * zDur;
+    ctx.fillText(fmtTime(t), x + 2, h - 4);
+  }
+}
+
+function updatePlayhead() {
+  const ph = document.getElementById('playhead');
+  if (!ph || !S.audioEl || !S.audioEl.duration) return;
+  const dur = S.audioEl.duration;
+  const t = S.audioEl.currentTime;
+  const zDur = dur * (S.zoomEnd - S.zoomStart);
+  const zStart = S.zoomStart * dur;
+  const pct = zDur > 0 ? ((t - zStart) / zDur) * 100 : 0;
+  ph.style.left = Math.max(0, Math.min(100, pct)) + '%';
+  if (pct < 0 || pct > 100) ph.style.display = 'none';
+  else ph.style.display = '';
+}
+
+function onWaveformClick(e) {
+  if (S.cutMode) {
+    addCutPoint(e);
+    return;
+  }
+  const area = document.getElementById("waveform-area");
+  const rect = area.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  const dur = S.task?.audio_duration_sec || 0;
+  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+  const zStart = S.zoomStart * dur;
+  const zDur = dur * (S.zoomEnd - S.zoomStart);
+  const t = zStart + pct * zDur;
+  if (S.audioEl) {
+    S.audioEl.currentTime = Math.max(0, Math.min(dur, t));
+    updatePlayhead();
+  }
+}
+
+// ═══════════════════════════════════════════
+// Cutting
+// ═══════════════════════════════════════════
+function toggleCutMode() {
+  S.cutMode = !S.cutMode;
+  S._dragPointIdx = -1;
+  document.getElementById("btn-cut").classList.toggle("active", S.cutMode);
+  document.getElementById("cut-info").style.display = S.cutMode ? "" : "none";
+  document.getElementById("btn-confirm-cut").style.display = S.cutMode ? "" : "none";
+  document.getElementById("btn-cancel-cut").style.display = S.cutMode ? "" : "none";
+  const btnUndo2 = document.getElementById("btn-undo-cut");
+  if (btnUndo2) btnUndo2.style.display = (S.cutMode && S.cutPoints.length > 0) ? "" : "none";
+  document.getElementById("waveform-area").classList.toggle("cut-mode", S.cutMode);
+  document.getElementById("waveform-area").style.height = S.cutMode ? "160px" : "120px";
+  drawWaveform();
+  drawCutMarkers();
+}
+
+function addCutPoint(e) {
+  const area = document.getElementById("waveform-area");
+  const rect = area.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  const dur = S.task?.audio_duration_sec || 0;
+  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+  const zStart = S.zoomStart * dur;
+  const zDur = dur * (S.zoomEnd - S.zoomStart);
+  const t = zStart + pct * zDur;
+
+  if (t < 1 || t > dur - 1) return toast("切割點太靠近邊界", "warn");
+  const tooClose = S.cutPoints.some(cp => Math.abs(cp - t) < 1);
+  if (tooClose) return toast("切割點間距需 ≥ 1 秒", "warn");
+
+  S.cutPoints.push(t);
+  S.cutPoints.sort((a, b) => a - b);
+  drawCutMarkers();
+}
+
+
+// Undo: Ctrl+Z 移除最後一個切割點
+function undoCutPoint() {
+  if (!S.cutMode || S.cutPoints.length === 0) return false;
+  S.cutPoints.pop();
+  drawCutMarkers();
+  return true;
+}
+
+function drawCutMarkers() {
+  const container = document.getElementById("cut-markers");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const dur = S.task?.audio_duration_sec || 0;
+  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+  const zStart = S.zoomStart * dur;
+  const zDur = dur * (S.zoomEnd - S.zoomStart);
+  const toPct = (t) => zDur > 0 ? ((t - zStart) / zDur) * 100 : 0;
+  const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  S.cutPoints.forEach((t, i) => {
+    const pct = toPct(t);
+    if (pct < -5 || pct > 105) return;
+
+    const marker = document.createElement("div");
+    marker.className = "cut-marker";
+    marker.style.left = pct + "%";
+    marker.title = fmtTime(t);
+    marker.dataset.idx = i;
+
+    const label = document.createElement("div");
+    label.className = "cut-label";
+    label.textContent = labels[i] || i + 1;
+    marker.appendChild(label);
+
+    marker.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      S._dragPointIdx = i;
+      document.body.style.cursor = "ew-resize";
+    });
+
+    container.appendChild(marker);
+  });
+
+  if (S.cutPoints.length >= 1 && dur > 0) {
+    const allPoints = [0, ...S.cutPoints, dur];
+    for (let i = 0; i < allPoints.length - 1; i++) {
+      const start = allPoints[i];
+      const end = allPoints[i + 1];
+      const leftPct = toPct(start);
+      const rightPct = toPct(end);
+      const width = rightPct - leftPct;
+      if (width < 2) continue;
+      const preview = document.createElement("div");
+      preview.className = "cut-seg-preview";
+      preview.style.left = leftPct + "%";
+      preview.style.width = width + "%";
+      preview.title = fmtTime(start) + " ~ " + fmtTime(end);
+      if (width > 8) preview.textContent = fmtTime(start) + " ~ " + fmtTime(end);
+      container.appendChild(preview);
+    }
+  }
+
+  const btnUndo = document.getElementById("btn-undo-cut");
+  if (btnUndo) btnUndo.style.display = (S.cutMode && S.cutPoints.length > 0) ? "" : "none";
+  document.getElementById("cut-info").textContent =
+    `切割模式：點擊波形標註切割點（${S.cutPoints.length} 點）`;
+}
+
+document.addEventListener("mousemove", (e) => {
+  if (S._dragPointIdx < 0 || !S.cutMode) return;
+  const area = document.getElementById("waveform-area");
+  if (!area) return;
+  const rect = area.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  const dur = S.task?.audio_duration_sec || 0;
+  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+  const zStart = S.zoomStart * dur;
+  const zDur = dur * (S.zoomEnd - S.zoomStart);
+  S.cutPoints[S._dragPointIdx] = zStart + pct * zDur;
+  S.cutPoints[S._dragPointIdx] = Math.max(1, Math.min(dur - 1, S.cutPoints[S._dragPointIdx]));
+  drawCutMarkers();
+});
+
+document.addEventListener("mouseup", () => {
+  if (S._dragPointIdx >= 0) {
+    S.cutPoints.sort((a, b) => a - b);
+    S._dragPointIdx = -1;
+    document.body.style.cursor = "";
+    drawCutMarkers();
+  }
+});
+
+async function confirmCut() {
+  if (S.cutPoints.length === 0) return toast("請先在波形上點擊標註切割點", "warn");
+  try {
+    const res = await api("POST", `/tasks/${S.taskId}/split`, { cut_points: S.cutPoints });
+    S.segments.push(...res.segments);
+    S.segments.sort((a, b) => a.start - b.start);
+    S.segments.forEach((s, i) => s.id = i);
+    S.spkMap = {};
+    S.selected.clear();
+    S.cutPoints = [];
+    S.cutMode = false;
+    S.cutPoints = [];
+    S.cutMode = false;
+    renderSegments();
+    renderSpeakers();
+    toast("已新增 " + res.segment_count + " 段", "");
+  } catch (e) { toast("切割失敗：" + e.message, "err"); }
+}
+
+// ═══════════════════════════════════════════
+// 段落渲染
+// ═══════════════════════════════════════════
+function renderSegments() {
+  const list = document.getElementById('seg-list');
+  if (!list) return;
+  list.innerHTML = S.segments.map(s => {
+    const selClass = S.selected.has(s.id) ? ' sel' : '';
+    const playingClass = S.playingId === s.id ? ' playing' : '';
+    const sttIcon = s.stt_status === 'completed' ? '✅' : s.stt_status === 'failed' ? '❌' : '⏳';
+    return `
+      <div class="seg-row${selClass}${playingClass}" data-sid="${s.id}">
+        <div class="sel-box">${S.selected.has(s.id) ? '✓' : ''}</div>
+        <div class="seg-body">
+          <div class="seg-meta">
+            <span class="seg-ts">${fmtTime(s.start)}</span>
+            ${s.speaker ? `<span class="seg-spk">${esc(s.speaker)}</span>` : ''}
+            <span class="seg-status ${s.stt_status==='completed'?'done':s.stt_status==='failed'?'fail':'wait'}">${sttIcon}</span>
+          </div>
+          <div class="seg-text">${esc(s.stt_status === 'pending' ? (fmtTime(s.start) + ' ~ ' + fmtTime(s.end)) : (s.text || '（尚無文字）'))}</div>
+          ${S.viewMode === 'compare' || S.viewMode === 'written' ? `<div class="seg-written">${esc(s.written || '')}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // 重新綁定點擊事件
+  list.querySelectorAll('.seg-row').forEach(row => {
+    const sid = parseInt(row.dataset.sid);
+    row.addEventListener('click', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        S.selected.has(sid) ? S.selected.delete(sid) : S.selected.add(sid);
+      } else {
+        S.selected.clear();
+        S.selected.add(sid);
+      }
+      renderSegments();
+    });
+    row.querySelector('.seg-ts')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const seg = S.segments.find(s => s.id === sid);
+      if (seg && S.audioEl) {
+        S.audioEl.currentTime = seg.start;
+        updatePlayhead();
+      }
+    });
+  });
+
+  const btn = document.getElementById('btn-restt-selected');
+  if (btn) btn.classList.toggle('hidden', S.selected.size === 0);
+}
+
+function renderSpeakers() {
+  const panel = document.getElementById('spk-panel');
+  if (!panel) return;
+  const map = S.spkMap;
+  const entries = Object.entries(map).sort((a, b) => b[1].count - a[1].count);
+
+  panel.innerHTML = `
+    <h3>說話人</h3>
+    ${entries.map(([sid, info]) => `
+      <div class="spk-card">
+        <div class="spk-id">${esc(sid)}</div>
+        <div class="spk-count">${info.count} 段</div>
+        <input type="text" value="${esc(info.name || '')}" placeholder="輸入姓名..."
+               data-sid="${sid}" class="spk-name-input">
+      </div>
+    `).join('')}
+  `;
+
+  panel.querySelectorAll('.spk-name-input').forEach(inp => {
+    inp.addEventListener('change', async () => {
+      const sid = inp.dataset.sid;
+      const name = inp.value.trim();
+      try {
+        const body = {}; body[sid] = name;
+        const res = await api('PUT', `/tasks/${S.taskId}/speakers`, body);
+        S.spkMap = res.speaker_map;
+        renderSegments();
+        renderSpeakers();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+  });
+}
+
+// ═══════════════════════════════════════════
+// Batch STT
+// ═══════════════════════════════════════════
+function startBatchStt() {
+  if (S.batchRunning) return;
+  const pending = S.segments.filter(s => s.stt_status !== 'completed');
+  if (pending.length === 0) {
+    return toast('所有段落已完成 STT', '');
+  }
+  renderBatchSttOverlay(pending);
+  runBatchStt(pending);
+}
+
+async function autoSplit10Min() {
+  const dur = S.task?.audio_duration_sec || 0;
+  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+  if (dur < 20) return toast('音檔太短，不需自動分段', 'warn');
+
+  const interval = 600;
+  const cutPoints = [];
+  for (let t = interval; t < dur - interval/2; t += interval) {
+    cutPoints.push(parseFloat(t.toFixed(1)));
+  }
+
+  try {
+    const res = await api('POST', `/tasks/${S.taskId}/split`, { cut_points: cutPoints });
+    S.segments = res.segments;
+    S.spkMap = {};
+    S.selected.clear();
+    S.cutPoints = [];
+    S.cutMode = false;
+    S.cutPoints = [];
+    S.cutMode = false;
+    S.cutPoints = [];
+    S.cutMode = false;
+    renderWorkspace();
+    toast(`已自動切成 ${res.segment_count} 段（每10分鐘）`, '');
+  } catch (e) { toast('自動分段失敗：' + e.message, 'err'); }
+}
+
+function renderBatchSttOverlay(pending) {
+  const overlay = document.createElement('div');
+  overlay.className = 'batch-stt-overlay';
+  overlay.id = 'batch-stt-overlay';
+  overlay.innerHTML = `
+    <div class="batch-stt-card">
+      <h3>🔄 STT 處理中 (${pending.length} 段)</h3>
+      <div class="pbar-outer"><div class="pbar-inner" id="batch-pbar" style="width:0%"></div></div>
+      <p class="text-sm text-muted mb-md" id="batch-status"></p>
+      <div id="batch-items"></div>
+      <div class="modal-footer">
+        <button id="batch-pause-btn">⏸ 暫停</button>
+        <button id="batch-cancel-btn" class="danger">✖ 取消（保留已完成）</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('batch-pause-btn')?.addEventListener('click', toggleBatchPause);
+  document.getElementById('batch-cancel-btn')?.addEventListener('click', () => {
+    S.batchRunning = false;
+    overlay.remove();
+    renderSegments();
+    toast('已取消，已完成段落已保存', '');
+  });
+}
+
+async function runBatchStt(pending) {
+  S.batchRunning = true;
+  S.batchPaused = false;
+  S.batchSegIdx = 0;
+
+  while (S.batchRunning && S.batchSegIdx < pending.length) {
+    if (S.batchPaused) { await sleep(500); continue; }
+
+    const seg = pending[S.batchSegIdx];
+    updateBatchItem(seg, 'processing');
+
+    try {
+      const res = await api('POST', `/tasks/${S.taskId}/stt-segment`, { segment_id: seg.id });
+      const idx = S.segments.findIndex(s => s.id === seg.id);
+      if (idx >= 0) {
+        S.segments[idx].text = res.text;
+        S.segments[idx].speaker = res.speaker || S.segments[idx].speaker;
+        S.segments[idx].stt_status = 'completed';
+      }
+      updateBatchItem(seg, 'completed');
+    } catch (e) {
+      seg.stt_status = 'failed';
+      const sidx = S.segments.findIndex(s => s.id === seg.id);
+      if (sidx >= 0) S.segments[sidx].stt_status = 'failed';
+      updateBatchItem(seg, 'failed');
+    }
+
+    S.batchSegIdx++;
+    updateBatchProgress(pending.length);
+  }
+
+  S.batchRunning = false;
+  document.getElementById('batch-stt-overlay')?.remove();
+
+  try {
+    await api('POST', `/tasks/${S.taskId}/diarize`);
+    const task = await api('GET', `/tasks/${S.taskId}`);
+    S.segments = task.result?.segments || [];
+    S.spkMap = task.result?.speaker_map || {};
+  } catch { /* 非致命 */ }
+
+  renderSegments();
+  renderSpeakers();
+  const failed = pending.filter(s => s.stt_status === 'failed').length;
+  const done = pending.length - failed;
+  toast(`STT 完成：✅ ${done} 段` + (failed ? `，❌ ${failed} 段失敗` : ''), failed ? 'warn' : '');
+}
+
+function toggleBatchPause() {
+  S.batchPaused = !S.batchPaused;
+  const btn = document.getElementById('batch-pause-btn');
+  if (btn) btn.textContent = S.batchPaused ? '▶ 繼續' : '⏸ 暫停';
+}
+
+function updateBatchItem(seg, status) {
+  const items = document.getElementById('batch-items');
+  if (!items) return;
+  const icons = { processing: '⏳', completed: '✅', failed: '❌' };
+  const existing = items.querySelector(`[data-sid="${seg.id}"]`);
+  if (existing) {
+    existing.querySelector('.icon').textContent = icons[status] || '⏳';
+  } else {
+    const div = document.createElement('div');
+    div.className = 'batch-stt-item';
+    div.dataset.sid = seg.id;
+    div.innerHTML = `<span class="icon">${icons[status]}</span> ${fmtTime(seg.start)} ~ ${fmtTime(seg.end)}`;
+    items.appendChild(div);
+  }
+}
+
+function updateBatchProgress(total) {
+  const pbar = document.getElementById('batch-pbar');
+  const status = document.getElementById('batch-status');
+  if (pbar) pbar.style.width = ((S.batchSegIdx / total) * 100) + '%';
+  if (status) status.textContent = `已完成 ${S.batchSegIdx} / ${total} 段`;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ═══════════════════════════════════════════
+// Add Manual Segment
+// ═══════════════════════════════════════════
+function openAddSegmentModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">添加時間段 <button class="icon" id="modal-close">✖</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>開始時間</label>
+          <input type="time" step="1" id="seg-start" value="00:00:00">
+        </div>
+        <div class="form-group">
+          <label>結束時間</label>
+          <input type="time" step="1" id="seg-end" value="00:00:05">
+        </div>
+        <p class="text-sm text-muted">音檔時長：${fmtTime(S.task?.audio_duration_sec || 0)}</p>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-cancel">取消</button>
+        <button class="primary" id="modal-add-stt">添加 + STT</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#modal-close')?.addEventListener('click', close);
+  overlay.querySelector('#modal-cancel')?.addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  overlay.querySelector('#modal-add-stt')?.addEventListener('click', async () => {
+    const start = parseTimeInput(document.getElementById('seg-start').value);
+    const end = parseTimeInput(document.getElementById('seg-end').value);
+    if (end <= start) return toast('結束時間必須大於開始時間', 'warn');
+
+    try {
+      const res = await api('POST', `/tasks/${S.taskId}/segments`, { start, end });
+      S.segments.push(res.segment);
+      S.segments.sort((a, b) => a.start - b.start);
+      S.segments.forEach((s, i) => s.id = i);
+      renderSegments();
+      close();
+      toast('時間段已添加', '');
+
+      try {
+        const sttRes = await api('POST', `/tasks/${S.taskId}/stt-segment`, { segment_id: res.segment.id });
+        const idx = S.segments.findIndex(s => s.id === res.segment.id);
+        if (idx >= 0) {
+          S.segments[idx].text = sttRes.text;
+          S.segments[idx].stt_status = 'completed';
+        }
+        renderSegments();
+        renderSpeakers();
+      } catch { toast('自動 STT 失敗，可手動重試', 'warn'); }
+    } catch (e) { toast(e.message, 'err'); }
+  });
+}
+
+function parseTimeInput(val) {
+  const parts = val.split(':').map(Number);
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+}
+
+// ═══════════════════════════════════════════
+// Re-STT Selected
+// ═══════════════════════════════════════════
+async function reSttSelected() {
+  const ids = Array.from(S.selected);
+  if (ids.length === 0) return toast('請先選取段落', 'warn');
+  S.selected.clear();
+  try {
+    await api('POST', `/tasks/${S.taskId}/retranscribe`, {
+      segment_ids: ids,
+      noise_reduction: false,
+      volume_boost: false,
+    });
+    const task = await api('GET', `/tasks/${S.taskId}`);
+    S.segments = task.result?.segments || [];
+    S.spkMap = task.result?.speaker_map || {};
+  } catch (e) { toast('重新識別失敗：' + e.message, 'err'); }
+  renderSegments();
+  renderSpeakers();
+  initZoomControls();
+}
+
+// ═══════════════════════════════════════════
+// Export
+// ═══════════════════════════════════════════
+async function doExport(fmt) {
+  const btn = document.getElementById('exp-txt');
+  if (btn) { btn.disabled = true; btn.textContent = '匯出中...'; }
+  try {
+    const res = await api('POST', `/tasks/${S.taskId}/export`, { format: fmt, language: S.viewMode === 'written' ? 'written' : 'yue' });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const name = (S.task?.audio_filename || 'output').replace(/\.[^.]+$/, '') + '.' + fmt;
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('匯出完成', '');
+  } catch (e) { toast(e.message, 'err'); }
+  if (btn) { btn.disabled = false; btn.textContent = 'TXT 純文字'; }
+  document.getElementById('export-menu')?.classList.add('hidden');
+}
+
+function openExportModal(fmt) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">匯出選項 <button class="icon" id="modal-close">✖</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>語言版本</label>
+          <select id="exp-lang"><option value="yue">粵語原文</option><option value="written">書面語</option></select>
+        </div>
+        <div id="docx-opts">
+          <div class="form-group">
+            <label>字型</label>
+            <select id="exp-font"><option>微軟正黑體</option><option>Noto Sans TC</option></select>
+          </div>
+          <div class="form-group">
+            <label>字級</label>
+            <select id="exp-size"><option>12</option><option>14</option><option>16</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-cancel">取消</button>
+        <button class="primary" id="modal-export">匯出下載</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector('#modal-close')?.addEventListener('click', close);
+  overlay.querySelector('#modal-cancel')?.addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#modal-export')?.addEventListener('click', async () => {
+    const genBtn = overlay.querySelector('#modal-export');
+    try {
+      genBtn.disabled = true; genBtn.textContent = '匯出中...';
+      const lang = document.getElementById('exp-lang').value;
+      const res = await api('POST', `/tasks/${S.taskId}/export`, {
+        format: fmt, language: lang,
+        font_name: document.getElementById('exp-font')?.value,
+        font_size: parseInt(document.getElementById('exp-size')?.value || '12'),
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const name = (S.task?.audio_filename || 'output').replace(/\.[^.]+$/, '') + '.' + fmt;
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+      close();
+      toast('匯出完成', '');
+    } catch (e) { toast(e.message, 'err'); genBtn.disabled = false; genBtn.textContent = '匯出下載'; }
+  });
+}
+
+// ═══════════════════════════════════════════
+// AI Report
+// ═══════════════════════════════════════════
+function openReportModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:600px;">
+      <div class="modal-header">AI 會議報告 <button class="icon" id="modal-close">✖</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>LLM 模型</label>
+          <input type="text" id="rep-model" value="gemma3:12b">
+        </div>
+        <div class="form-group">
+          <label>報告語言</label>
+          <select id="rep-lang"><option value="zh">繁體中文</option><option value="yue">粵語口語</option></select>
+        </div>
+        <div id="rep-result" style="margin-top:12px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-cancel">取消</button>
+        <button class="primary" id="modal-gen">生成報告</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector('#modal-close')?.addEventListener('click', close);
+  overlay.querySelector('#modal-cancel')?.addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  overlay.querySelector('#modal-gen')?.addEventListener('click', async () => {
+    const genBtn = overlay.querySelector('#modal-gen');
+    const resultDiv = document.getElementById('rep-result');
+    genBtn.disabled = true;
+    genBtn.innerHTML = '生成中 <span class="spinner"></span>';
+    resultDiv.innerHTML = '<div style="text-align:center;padding:20px;"><span class="spinner"></span> 正在生成...</div>';
+
+    try {
+      const res = await api('POST', `/tasks/${S.taskId}/report`, {
+        language: S.viewMode === 'written' ? 'written' : 'yue',
+        model: document.getElementById('rep-model').value,
+        report_language: document.getElementById('rep-lang').value,
+      });
+      if (res.success) {
+        resultDiv.innerHTML = `<div style="background:var(--bg);border-radius:var(--radius-sm);padding:14px;max-height:300px;overflow-y:auto;white-space:pre-wrap;font-size:13px;">${esc(res.report)}</div>
+          <div class="text-sm text-muted" style="margin-top:4px;">模型：${res.model || 'N/A'} | Tokens：${res.tokens_used || 'N/A'}</div>`;
+        genBtn.textContent = '重新生成';
+        genBtn.disabled = false;
+      } else {
+        resultDiv.innerHTML = `<div style="color:var(--danger);">❌ ${res.error || '失敗'}</div>`;
+        genBtn.textContent = '重試';
+        genBtn.disabled = false;
+      }
+    } catch (e) {
+      resultDiv.innerHTML = `<div style="color:var(--danger);">❌ ${e.message}</div>`;
+      genBtn.textContent = '重試';
+      genBtn.disabled = false;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════
+// Zoom controls
+// ═══════════════════════════════════════════
+function initZoomControls() {
+  document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
+    const mid = (S.zoomStart + S.zoomEnd) / 2;
+    const w = (S.zoomEnd - S.zoomStart) * 0.25;
+    S.zoomStart = Math.max(0, mid - w);
+    S.zoomEnd = Math.min(1, mid + w);
+    drawWaveform();
+    drawCutMarkers();
+    updatePlayhead();
+  });
+  document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
+    const mid = (S.zoomStart + S.zoomEnd) / 2;
+    const w = (S.zoomEnd - S.zoomStart) * 1.0;
+    S.zoomStart = Math.max(0, mid - w);
+    S.zoomEnd = Math.min(1, mid + w);
+    drawWaveform();
+    drawCutMarkers();
+    updatePlayhead();
+  });
+  document.getElementById('btn-zoom-reset')?.addEventListener('click', () => {
+    S.zoomStart = 0; S.zoomEnd = 1;
+    drawWaveform();
+    drawCutMarkers();
+    updatePlayhead();
+  });
+
+  document.getElementById('waveform-canvas')?.addEventListener('click', onWaveformClick);
+}
+
+// ═══════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════
+// 全域事件（確保 recovery 路徑也會註冊）
+document.addEventListener("keydown", onKeyboard);
+window.addEventListener("resize", () => {
+  if (S.page === "workspace") {
+    drawWaveform();
+    drawCutMarkers();
+    updatePlayhead();
+  }
+});
+
+// 全域鍵盤與視窗伸縮事件（確保 recovery 路徑也會註冊）
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+    e.preventDefault();
+    undoCutPoint();
+    return;
+  }
+  if (e.key === "Escape") {
+    document.querySelectorAll(".modal-overlay").forEach(o => o.remove());
+    if (S.cutMode) { S.cutPoints = []; toggleCutMode(); }
+  }
+  if (e.key === " " && e.target === document.body) {
+    e.preventDefault();
+    togglePlay();
+  }
+});
+window.addEventListener("resize", () => {
+  if (S.page === "workspace") { drawWaveform(); drawCutMarkers(); updatePlayhead(); }
+});
+
+(async function init() {
+  try {
+    const last = await api('GET', '/last-task');
+    if (last.task_id) {
+      const task = await api('GET', `/tasks/${last.task_id}`);
+      if (task.status === 'completed' || (task.result?.segments?.length > 0)) {
+        const recover = confirm(`偵測到上次未完成的工作\n檔案：${task.audio_filename}\n時長：${fmtTime(task.audio_duration_sec)}\n狀態：${task.status === 'completed' ? '已完成' : '處理中'}\n\n是否恢復？`);
+        if (recover) {
+          await loadTaskData(task);
+          navigate('workspace');
+          return;
+        }
+      }
+    }
+  } catch (e) { /* 無快取或網路錯誤，正常啟動 */ }
+
+  navigate('upload');
+
+  const observer = new MutationObserver(() => {
+    if (document.getElementById('waveform-canvas') && !document.getElementById('waveform-canvas')._wired) {
+      document.getElementById('waveform-canvas')._wired = true;
+      initZoomControls();
+    }
+  });
+  observer.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
+
+})();
+
+window.addEventListener('beforeunload', () => {
+  if (S.taskId) cacheSet('last_task_id', S.taskId);
+  cacheSet('audio_time', S.audioEl?.currentTime || 0);
+});
+</script>
+</body>
+</html>

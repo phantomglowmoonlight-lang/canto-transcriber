@@ -1,0 +1,42 @@
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.lnk
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Environment
+.env
+tasks/
+
+# Temp scripts / debug files
+fix_*.py
+check_js.js
+debug_str.py
+pipeline.py
+repair.py
+find_bug*.py
+final_fix.py
+
+# Audio files
+*.mp3
+*.wav
+
+# Models (large)
+models/
+
+# Binaries
+bin/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

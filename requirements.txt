@@ -1,0 +1,35 @@
+# Core: STT
+faster-whisper>=1.1.0
+
+# Audio processing
+pydub>=0.25.1
+webrtcvad>=2.0.10
+noisereduce>=3.0.3
+
+# Speaker diarization (optional, requires HF token)
+# pyannote.audio>=3.1.1
+
+# Translation model (粵語→書面語，raptorkwok/cantonese-chinese-translation)
+transformers>=4.40.0
+torch>=2.0.0
+
+# Export
+python-docx>=1.1.2
+
+# CLI
+typer>=0.15.0
+rich>=13.9.0
+
+# API server
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.18
+
+# Translation & AI report (LLM integration)
+httpx>=0.28.0
+
+# Config
+pydantic-settings>=2.7.0
+
+# Utilities
+tqdm>=4.67.0
