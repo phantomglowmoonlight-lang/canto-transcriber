@@ -936,8 +936,6 @@ async def stt_segment(task_id: str, body: dict):
     else:
         target["text"] = "[未偵測到語音]"
         target["stt_confidence"] = 0.0
-    else:
-        target["text"] = "[未偵測到語音]"
     target["speaker"] = target.get("speaker", "") or f"人物 #{segment_id}"
     target["stt_status"] = "completed"
     target["retranscribe_count"] = target.get("retranscribe_count", 0) + 1
