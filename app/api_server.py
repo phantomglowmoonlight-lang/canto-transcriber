@@ -912,9 +912,30 @@ async def stt_segment(task_id: str, body: dict):
     # 更新段落
     new_segs = stt_result.get("segments", [])
     if new_segs:
-        # 合併所有 STT 子段落的文字
-        full_text = "".join(sg.get("text", "") for sg in new_segs if sg.get("text"))
+        # 合併所有 STT 子段落的文字，排除低信心段落
+        texts = []
+        low_conf = []
+        for sg in new_segs:
+            txt = sg.get("text", "").strip()
+            if not txt:
+                continue
+            logprob = sg.get("avg_logprob", 0)
+            # avg_logprob 是負值，-1.0 以上算合理，-2.0 以下很低
+            if logprob < -2.0:
+                low_conf.append(txt)
+                continue
+            texts.append(txt)
+
+        full_text = "".join(texts) if texts else ("".join(low_conf) if low_conf else "")
         target["text"] = full_text if full_text else "[未偵測到語音]"
+
+        # 記錄信心數據
+        if new_segs:
+            avg_logprob = sum(sg.get("avg_logprob", 0) for sg in new_segs if sg.get("avg_logprob") is not None) / max(len([s for s in new_segs if s.get("avg_logprob") is not None]), 1)
+            target["stt_confidence"] = max(0, 1.0 + avg_logprob)  # 0~1 範圍
+    else:
+        target["text"] = "[未偵測到語音]"
+        target["stt_confidence"] = 0.0
     else:
         target["text"] = "[未偵測到語音]"
     target["speaker"] = target.get("speaker", "") or f"人物 #{segment_id}"

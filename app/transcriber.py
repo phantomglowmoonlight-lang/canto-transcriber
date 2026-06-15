@@ -94,9 +94,14 @@ def transcribe_audio(
     wav_path: Path,
     language: str = "yue",
     progress_callback: Optional[Callable[[float], None]] = None,
+    initial_prompt: Optional[str] = None,
 ) -> dict:
     """
     對 WAV 檔案進行廣東話語音識別
+
+    參數:
+        initial_prompt: 熱詞提示，用於提高特定詞彙的辨識準確度
+                        例如："以下是會議討論：陳偉芝，蕭榮施惠，張浩霖，心理輔導"
 
     回傳:
     {
@@ -104,21 +109,41 @@ def transcribe_audio(
         "language_probability": 0.95,
         "duration_sec": 123.4,
         "segments": [
-            {"id": 0, "start": 0.0, "end": 2.5, "text": "大家好"},
+            {"id": 0, "start": 0.0, "end": 2.5, "text": "大家好", "avg_logprob": -0.15},
             ...
         ]
     }
     """
     model = _get_model()
 
+    # 預設熱詞：常見會議用語
+    if not initial_prompt:
+        initial_prompt = (
+            "以下是會議討論，請專注於粵語語音識別。"
+            "人物：陳偉芝，蕭榮施惠，張浩霖，胡小龍，林軍司，王教師，"
+            "張家英，神順風，王子牙。"
+            "詞彙：心理輔導，精神科，躁鬱症，缺課，個案，報告，評估，"
+            "考試，學期，家長，治療，藥物，情緒，行為。"
+        )
+
     # faster-whisper 轉寫
     segments_result, info = model.transcribe(
         str(wav_path),
         language=language,
-        beam_size=5,
-        vad_filter=False,  # 關閉 faster-whisper 內建 VAD（使用 webrtcvad 做說話人分離）
+        beam_size=7,
+        best_of=5,
+        temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        compression_ratio_threshold=2.4,
+        no_speech_threshold=0.6,
+        condition_on_previous_text=True,
+        initial_prompt=initial_prompt,
+        vad_filter=True,  # Silero VAD 過濾非語音片段
         vad_parameters=dict(
-            min_silence_duration_ms=500,
+            threshold=0.5,
+            min_speech_duration_ms=250,
+            max_speech_duration_s=30,
+            min_silence_duration_ms=2000,
+            speech_pad_ms=400,
         ),
     )
 
@@ -131,9 +156,16 @@ def transcribe_audio(
             "start": round(seg.start, 2),
             "end": round(seg.end, 2),
             "text": seg.text.strip(),
+            "avg_logprob": seg.avg_logprob,
+            "no_speech_prob": seg.no_speech_prob,
         })
         if progress_callback and info.duration:
             progress_callback(min(seg.end / info.duration, 1.0))
+
+    # 記錄 VAD 統計
+    if segments:
+        avg_conf = sum(max(0, 1.0 + s["avg_logprob"]) for s in segments) / len(segments)
+        logger.info(f"STT 完成：{len(segments)} 段，平均信心 {avg_conf:.2%}")
 
     return {
         "language": info.language,
