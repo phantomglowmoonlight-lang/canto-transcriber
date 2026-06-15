@@ -14,12 +14,21 @@ from pathlib import Path
 from typing import Optional
 
 import os
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-# ─── 崩潰日誌（PyInstaller 視窗模式下沒有 console）───
+
+def _parse_speaker_id(sid: str) -> int:
+    """從 speaker_id 提取數字序號用於排序"""
+    try:
+        return int(sid.replace("人物 #", "").split()[0])
+    except (ValueError, IndexError):
+        return 9999
+
+
+# ─── 崩潰日誌
 def _setup_crash_log():
     _log_path = Path(sys.executable).parent / "crash.log" if getattr(sys, 'frozen', False) else Path.cwd() / "crash.log"
     def _log(exc_type, exc_value, exc_tb):
@@ -52,7 +61,7 @@ from app.text_processor import (
     validate_segment_selection,
 )
 from app.speaker_registry import SpeakerRegistry
-from app.exporter import export_txt, export_docx
+from app.exporter import export_txt, export_docx, export_srt
 from app.report_generator import generate_report
 from app.translator import translate_segments_builtin
 
@@ -220,11 +229,7 @@ def _process_transcription(task: dict, wav_path: Path, audio_filename: str):
 
         speaker_counts = build_speaker_counts(all_segments)
         # 安全排序：避免非標準 speaker_id 導致崩潰
-        def _safe_speaker_key(sid: str) -> int:
-            try:
-                return int(sid.replace("人物 #", "").split()[0])
-            except (ValueError, IndexError):
-                return 9999  # 未知格式排在最後
+  # 未知格式排在最後
         speaker_map = {
             sid: {"count": count, "name": None}
             for sid, count in sorted(speaker_counts.items(), key=lambda x: _safe_speaker_key(x[0]))
@@ -473,15 +478,6 @@ async def update_speakers(task_id: str, body: dict):
             name = (name or "").strip()
             speaker_map[speaker_id]["name"] = name if name else None
 
-    # 同時更新 segments 中的 speaker 顯示
-    registry = SpeakerRegistry({sid: info.get("count", 0) for sid, info in speaker_map.items()})
-    for sid, info in speaker_map.items():
-        if info.get("name"):
-            registry.set_name(sid, info["name"])
-
-    if task["result"].get("segments"):
-        task["result"]["segments"] = apply_speaker_names(task["result"]["segments"], registry)
-
     task["updated_at"] = datetime.now().isoformat()
     task_store.save(task)
 
@@ -540,7 +536,8 @@ async def retranscribe(task_id: str, body: dict):
 
         if new_count == 1:
             # 單一新段落 → 合併到第一個選取段落
-            selected[0]["text"] = new_segs[0]["text"]
+            all_text = "".join(sg.get("text", "") for sg in new_segs if sg.get("text"))
+            selected[0]["text"] = all_text
             selected[0]["translation_stale"] = True
             selected[0]["audio_processing"] = {"noise_reduction": noise_reduction, "volume_boost": volume_boost}
             selected[0]["retranscribe_count"] = selected[0].get("retranscribe_count", 0) + 1
@@ -590,6 +587,10 @@ async def export(task_id: str, body: dict):
     written = body.get("language", "yue") == "written"
 
     segments = task["result"]["segments"]
+    # 篩選指定段落
+    seg_ids = body.get("segment_ids")
+    if seg_ids:
+        segments = [s for s in segments if s["id"] in seg_ids]
     speaker_map = task["result"].get("speaker_map", {})
     registry = SpeakerRegistry({sid: info.get("count", 0) for sid, info in speaker_map.items()})
     for sid, info in speaker_map.items():
@@ -619,6 +620,9 @@ async def export(task_id: str, body: dict):
             include_timestamp=include_timestamp,
             include_speaker_color=include_speaker_color,
         )
+    elif fmt == "srt":
+        output_path = export_dir / f"{Path(audio_filename).stem}.srt"
+        export_srt(segments, output_path, audio_filename, written=written, registry=registry)
     else:
         raise HTTPException(400, f"不支援的格式：{fmt}")
 
@@ -747,40 +751,49 @@ async def split_task(task_id: str, body: dict):
     if not wav_path.exists():
         raise HTTPException(400, "原始音檔已遺失")
 
-    from app.audio_processor import split_audio_by_points
+    from app.audio_processor import extract_segment, save_audio_temp
 
     segment_dir = Path(task["_upload_dir"]) / "segments"
     segment_dir.mkdir(parents=True, exist_ok=True)
 
-    cuts = split_audio_by_points(wav_path, cut_points, segment_dir)
-
-    # 取現有 segments 的最大 id 作為新起點
     existing_segments = task["result"].get("segments", [])
     max_id = max((s["id"] for s in existing_segments), default=-1)
+    cut_set = sorted(set(cut_points))
 
     new_segments = []
-    for i, cut in enumerate(cuts):
-        new_segments.append({
-            "id": max_id + 1 + i,
-            "start": cut["start_sec"],
-            "end": cut["end_sec"],
-            "text": "[待 STT]",
-            "text_written": None,
-            "translation_stale": False,
-            "speaker": "",
-            "audio_processing": {"noise_reduction": False, "volume_boost": False},
-            "retranscribe_count": 0,
-            "stt_status": "pending",
-            "segment_path": cut["path"],
-        })
+    for seg in existing_segments:
+        # 找出落在這個段落內的切割點
+        inner = [p for p in cut_set if seg["start"] < p < seg["end"]]
+        if not inner:
+            # 無關段落，保留原樣
+            new_segments.append(seg)
+            continue
 
-    # 追加新段落，不取代
-    existing_segments.extend(new_segments)
-    existing_segments.sort(key=lambda s: s["start"])
-    for j, s in enumerate(existing_segments):
-        s["id"] = j
+        # 有切割點，細分這個段落
+        boundaries = [seg["start"]] + inner + [seg["end"]]
+        for i in range(len(boundaries) - 1):
+            st, et = boundaries[i], boundaries[i + 1]
+            seg_audio = extract_segment(wav_path, st, et)
+            sp = save_audio_temp(seg_audio)
+            import shutil
+            dest = segment_dir / f"cut_{st:.3f}_{et:.3f}.wav"
+            shutil.move(str(sp), str(dest))
+            max_id += 1
+            new_segments.append({
+                "id": max_id,
+                "start": st,
+                "end": et,
+                "text": "[待 STT]",
+                "text_written": None,
+                "translation_stale": False,
+                "speaker": seg.get("speaker", ""),
+                "audio_processing": {"noise_reduction": False, "volume_boost": False},
+                "retranscribe_count": 0,
+                "stt_status": "pending",
+                "segment_path": str(dest),
+            })
 
-    task["result"]["segments"] = existing_segments
+    task["result"]["segments"] = new_segments
     task["result"]["speaker_map"] = {}
     task["_cut_points"] = cut_points
     task["updated_at"] = datetime.now().isoformat()
@@ -792,6 +805,59 @@ async def split_task(task_id: str, body: dict):
         "segments": new_segments,
         "segment_count": len(new_segments),
     }
+
+
+@app.post("/v1/tasks/{task_id}/export-audio")
+async def export_task_audio(task_id: str, body: dict, background_tasks: BackgroundTasks):
+    """匯出指定段落的音頻為高品質 WAV"""
+    from fastapi.responses import FileResponse
+    from app.audio_processor import extract_segment
+    from pydub import AudioSegment
+    import tempfile, os
+
+    task = task_store.load(task_id)
+    if task is None:
+        raise HTTPException(404, "任務不存在")
+
+    seg_ids = body.get("segment_ids", [])
+    if not seg_ids:
+        raise HTTPException(400, "請指定至少一個段落 ID")
+
+    wav_path = Path(task["_wav_path"])
+    if not wav_path.exists():
+        raise HTTPException(400, "原始音檔已遺失")
+
+    segments = task["result"].get("segments", [])
+    combined = AudioSegment.empty()
+    for sid in seg_ids:
+        seg = next((s for s in segments if s["id"] == sid), None)
+        if seg is None:
+            continue
+        sp = seg.get("segment_path")
+        if sp and Path(sp).exists():
+            chunk = AudioSegment.from_file(str(sp))
+        else:
+            chunk = extract_segment(wav_path, seg["start"], seg["end"])
+        combined += chunk
+
+    if len(combined) == 0:
+        raise HTTPException(400, "無法讀取所選段落的音頻")
+
+    # 匯出為高品質 WAV
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False, prefix="ct_export_")
+    combined.export(tmp.name, format="wav", parameters=["-ar", "44100", "-ac", "2", "-sample_fmt", "s16"])
+
+    def cleanup():
+        try: os.unlink(tmp.name)
+        except: pass
+    background_tasks.add_task(cleanup)
+
+    return FileResponse(
+        tmp.name,
+        media_type="audio/wav",
+        filename=f"export_{task_id}_{len(seg_ids)}seg.wav",
+        headers={"Content-Disposition": f'attachment; filename="export_{task_id}_{len(seg_ids)}seg.wav"'},
+    )
 
 
 # ─── 逐段 STT API ───
@@ -846,7 +912,9 @@ async def stt_segment(task_id: str, body: dict):
     # 更新段落
     new_segs = stt_result.get("segments", [])
     if new_segs:
-        target["text"] = new_segs[0]["text"] if new_segs else "[未偵測到語音]"
+        # 合併所有 STT 子段落的文字
+        full_text = "".join(sg.get("text", "") for sg in new_segs if sg.get("text"))
+        target["text"] = full_text if full_text else "[未偵測到語音]"
     else:
         target["text"] = "[未偵測到語音]"
     target["speaker"] = target.get("speaker", "") or f"人物 #{segment_id}"
@@ -927,9 +995,7 @@ async def diarize_task(task_id: str):
 
     # 重建 speaker_map
     speaker_counts = build_speaker_counts(segments)
-    def _safe_key(sid): 
-        try: return int(sid.replace("人物 #", "").split()[0])
-        except: return 9999
+
     speaker_map = {
         sid: {"count": count, "name": None}
         for sid, count in sorted(speaker_counts.items(), key=lambda x: _safe_key(x[0]))
@@ -1005,9 +1071,92 @@ async def add_segment(task_id: str, body: dict):
     return {"success": True, "segment": new_seg}
 
 
+@app.put("/v1/tasks/{task_id}/segments/{segment_id}")
+async def update_segment(task_id: str, segment_id: int, body: dict):
+    """更新單一段落的文字內容"""
+    task = task_store.load(task_id)
+    if task is None:
+        raise HTTPException(404, "任務不存在")
+    if not task.get("result") or not task["result"].get("segments"):
+        raise HTTPException(400, "任務尚無段落")
+
+    segments = task["result"]["segments"]
+    for seg in segments:
+        if seg["id"] == segment_id:
+            if "text" in body:
+                seg["text"] = body["text"]
+            if "text_written" in body:
+                seg["text_written"] = body["text_written"]
+            task["updated_at"] = datetime.now().isoformat()
+            task_store.save(task)
+            return {"success": True, "segment": seg}
+
+    raise HTTPException(404, f"段落 #{segment_id} 不存在")
+
+
+@app.delete("/v1/tasks/{task_id}/segments")
+async def delete_segments(task_id: str, ids: str = Query("")):
+    """刪除指定 ID 的段落"""
+    task = task_store.load(task_id)
+    if task is None:
+        raise HTTPException(404, "任務不存在")
+    if not task.get("result") or not task["result"].get("segments"):
+        return {"success": True, "deleted_count": 0}
+
+    parsed_ids = []
+    for part in ids.split(","):
+        part = part.strip()
+        if part:
+            try: parsed_ids.append(int(part))
+            except: pass
+
+    if not parsed_ids:
+        raise HTTPException(400, "需提供 ids 參數，例如 ?ids=1,2,3")
+
+    segments = task["result"]["segments"]
+    before = len(segments)
+    task["result"]["segments"] = [s for s in segments if s["id"] not in parsed_ids]
+    deleted_count = before - len(task["result"]["segments"])
+    task["updated_at"] = datetime.now().isoformat()
+    task_store.save(task)
+
+    return {"success": True, "deleted_count": deleted_count}
+
+
 # ─── 靜態檔案與前端 ───
 
 frontend_dir = Path(__file__).parent.parent / "frontend"
+
+
+@app.get("/v1/settings")
+async def get_settings():
+    """取得目前 AI 設定（API Key 模糊化）"""
+    from app.settings_manager import UI_SETTINGS_KEYS, mask_api_key
+    result = {}
+    for key in UI_SETTINGS_KEYS:
+        val = getattr(settings, key, "")
+        if key == "llm_api_key":
+            val = mask_api_key(val)
+        result[key] = val
+    return result
+
+
+@app.put("/v1/settings")
+async def update_settings(body: dict):
+    """更新 UI 設定並持久化"""
+    from app.settings_manager import save_ui_settings, UI_SETTINGS_KEYS, mask_api_key
+    saved = save_ui_settings(settings.tasks_path, body)
+    # 更新當前 settings 物件（熱載入，不重啟）
+    for key in UI_SETTINGS_KEYS:
+        if key in saved:
+            setattr(settings, key, saved[key])
+    result = {}
+    for key in UI_SETTINGS_KEYS:
+        val = getattr(settings, key, "")
+        if key == "llm_api_key":
+            val = mask_api_key(val)
+        result[key] = val
+    return {"success": True, "settings": result}
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -103,7 +103,7 @@ input:focus,select:focus { border-color:var(--primary); box-shadow:0 0 0 2px var
 .view-toggle button:first-child { border-radius:var(--radius-sm) 0 0 var(--radius-sm); margin-left:0; }
 .view-toggle button:last-child { border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
 .seg-list { flex:1; overflow-y:auto; }
-.seg-row { display:flex; align-items:flex-start; padding:8px 14px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .12s; gap:8px; }
+.seg-row { display:flex; align-items:flex-start; padding:8px 14px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .12s; gap:8px; position:relative; }
 .seg-row:hover { background:var(--bg); }
 .seg-row.sel { background:var(--primary-light); }
 .seg-row.playing { background:var(--playmark); border-left:3px solid var(--primary); padding-left:11px; }
@@ -215,12 +215,12 @@ function toast(msg, cls) {
 // Formatting
 // ═══════════════════════════════════════════
 function fmtTime(sec) {
-  if (!sec && sec !== 0) return '--:--';
+  if (!sec && sec !== 0) return '--:--:--:---';
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   const s = Math.floor(sec % 60);
-  if (h > 0) return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  const ms = Math.floor((sec % 1) * 1000);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}:${String(ms).padStart(3,'0')}`;
 }
 function fmtSize(bytes) {
   if (bytes > 1e9) return (bytes / 1e9).toFixed(2) + ' GB';
@@ -424,7 +424,7 @@ async function loadTaskData(task) {
   cacheSet('last_task_id', S.taskId);
 
   try {
-    const wf = await api('GET', `/tasks/${S.taskId}/waveform?peaks=2000`);
+    const wf = await api('GET', `/tasks/${S.taskId}/waveform?peaks=8000`);
     S.waveformPeaks = wf.peaks || [];
   } catch { S.waveformPeaks = []; }
 }
@@ -433,6 +433,7 @@ async function loadTaskData(task) {
 // Workspace
 // ═══════════════════════════════════════════
 function renderWorkspace() {
+  S._zoomInited = false;
   const seg = S.segments;
   const dur = S.task?.audio_duration_sec || 0;
   if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
@@ -440,16 +441,22 @@ function renderWorkspace() {
   document.getElementById('app').innerHTML = `
     <div class="workspace">
       <div class="toolbar">
+        <button id="btn-settings" title="設定">⚙️</button>
         <button id="btn-new-project" title="新建項目">📂 新建</button>
         <span class="text-sm text-muted">${esc(S.task?.audio_filename || '')} (${fmtTime(dur)})</span>
         <span class="spacer"></span>
-        <button id="btn-cut" class="${S.cutMode ? 'active' : ''}" title="切割模式">✂️ 切割</button>
+        <button id="btn-cut" class="${S.cutMode ? 'active' : ''}" title="切割模式 (Escape 退出)">✂️ 切割</button>
         <button id="btn-translate" ${!hasSegments()?'disabled':''}>書面語翻譯</button>
+        <button id="btn-diarize" ${!hasSegments()?'disabled':''}>說話人分離</button>
         <button id="btn-report" ${!hasSegments()?'disabled':''}>AI 報告</button>
         <button id="btn-export" ${!hasSegments()?'disabled':''}>匯出 ⬇</button>
         <div id="export-menu" class="hidden" style="position:absolute;top:40px;right:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:50;">
           <button style="display:block;width:100%;text-align:left;border:none;padding:8px 16px;" id="exp-txt">TXT 純文字</button>
+          <button style="display:block;width:100%;text-align:left;border:none;padding:8px 16px;" id="exp-srt">SRT 字幕</button>
           <button style="display:block;width:100%;text-align:left;border:none;padding:8px 16px;" id="exp-docx">DOCX 文檔</button>
+          <hr style="border:none;border-top:1px solid var(--border);margin:4px 0;">
+          <button style="display:block;width:100%;text-align:left;border:none;padding:8px 16px;font-size:12px;" id="exp-txt-sel" class="${S.selected.size>0?'':'hidden'}">📄 TXT（僅選取）</button>
+          <button style="display:block;width:100%;text-align:left;border:none;padding:8px 16px;font-size:12px;" id="exp-srt-sel" class="${S.selected.size>0?'':'hidden'}">📄 SRT（僅選取）</button>
         </div>
       </div>
 
@@ -467,7 +474,6 @@ function renderWorkspace() {
           </span>
           <button id="btn-confirm-cut" class="primary" style="${S.cutMode?'':'display:none;'}">✅ 確認切割</button>
           <button id="btn-cancel-cut" style="${S.cutMode?'':'display:none;'}">取消</button>
-          <button id="btn-undo-cut" style="${S.cutMode && S.cutPoints.length>0?'':'display:none;'}" title="復原上一個切割點 (Ctrl+Z)">↩ 上一步</button>
           <button id="btn-undo-cut" style="${S.cutMode && S.cutPoints.length>0?'':'display:none;'}" title="復原上一個切割點 (Ctrl+Z)">↩ 上一步</button>
         </div>
       </div>
@@ -487,6 +493,10 @@ function renderWorkspace() {
             ` : ''}
             <button id="btn-add-segment" style="font-size:12px;">＋ 添加時間段</button>
             <button id="btn-restt-selected" class="${S.selected.size>0?'':'hidden'}" style="font-size:12px;">🔄 重新識別</button>
+            <button id="btn-select-all" style="font-size:12px;">☐ 全選</button>
+            <button id="btn-deselect-all" style="font-size:12px;">☐ 取消全選</button>
+            <button id="btn-export-audio" class="${S.selected.size>0?'':'hidden'}" style="font-size:12px;">🎵 匯出選擇音檔</button>
+            <button id="btn-delete-selected" class="${S.selected.size>0?'':'hidden'}" style="font-size:12px;color:var(--danger);">🗑 刪除所選</button>
             <span class="spacer"></span>
             <span class="text-sm text-muted" id="batch-hint">${S.segments.filter(s=>s.stt_status==='completed').length}/${S.segments.length} 段已完成</span>
           </div>
@@ -496,12 +506,20 @@ function renderWorkspace() {
 
       <div class="audio-bar">
         <div class="controls">
-          <button class="icon" id="btn-play" title="播放/暫停">▶</button>
+          <button class="icon" id="btn-play" title="播放/暫停 (Space)">▶</button>
           <button class="icon" id="btn-stop" title="停止">⏹</button>
         </div>
         <span class="time" id="time-current">00:00</span>
         <div class="seek flex-1"><input type="range" id="seek-bar" min="0" max="1000" value="0" step="1"></div>
         <span class="time" id="time-total">${fmtTime(dur)}</span>
+        <select id="speed-select" style="margin-left:8px;font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);">
+          <option value="0.5">0.5x</option>
+          <option value="0.75">0.75x</option>
+          <option value="1.0" selected>1.0x</option>
+          <option value="1.25">1.25x</option>
+          <option value="1.5">1.5x</option>
+          <option value="2.0">2.0x</option>
+        </select>
       </div>
     </div>
   `;
@@ -523,6 +541,7 @@ function allSttDone() { return S.segments.length > 0 && S.segments.every(s => s.
 // Toolbar events
 // ═══════════════════════════════════════════
 function wireToolbar() {
+  document.getElementById('btn-settings')?.addEventListener('click', () => openSettingsModal());
   document.getElementById('btn-new-project')?.addEventListener('click', () => {
     if (confirm('確定要新建項目嗎？目前的工作將會被清除。')) {
       S.taskId = null; S.task = null; S.segments = []; S.spkMap = {};
@@ -537,7 +556,6 @@ function wireToolbar() {
     S.cutPoints = [];
     toggleCutMode();
   });
-  document.getElementById('btn-undo-cut')?.addEventListener('click', () => undoCutPoint());
   document.getElementById('btn-undo-cut')?.addEventListener('click', () => undoCutPoint());
   document.getElementById('btn-confirm-cut')?.addEventListener('click', () => {
     if (S.cutPoints.length === 0) return toast("請先在波形上點擊標註切割點", "warn");
@@ -561,12 +579,33 @@ function wireToolbar() {
     btn.textContent = '書面語翻譯';
   });
 
+  document.getElementById('btn-diarize')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-diarize');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.innerHTML = '分離中 <span class="spinner"></span>';
+    try {
+      await api('POST', `/tasks/${S.taskId}/diarize`);
+      const task = await api('GET', `/tasks/${S.taskId}`);
+      S.segments = task.result?.segments || [];
+      S.spkMap = task.result?.speaker_map || {};
+      renderSegments();
+      renderSpeakers();
+      toast('說話人分離完成', '');
+    } catch (e) { toast(e.message, 'err'); }
+    btn.disabled = false;
+    btn.textContent = '說話人分離';
+  });
+
   document.getElementById('btn-report')?.addEventListener('click', () => openReportModal());
   document.getElementById('btn-export')?.addEventListener('click', () => {
     document.getElementById('export-menu').classList.toggle('hidden');
   });
   document.getElementById('exp-txt')?.addEventListener('click', () => doExport('txt'));
+  document.getElementById('exp-srt')?.addEventListener('click', () => doExport('srt'));
   document.getElementById('exp-docx')?.addEventListener('click', () => openExportModal('docx'));
+  document.getElementById('exp-txt-sel')?.addEventListener('click', () => doExportSelected('txt'));
+  document.getElementById('exp-srt-sel')?.addEventListener('click', () => doExportSelected('srt'));
 
   document.getElementById('view-orig')?.addEventListener('click', () => { S.viewMode = 'original'; refreshSegs(); });
   document.getElementById('view-written')?.addEventListener('click', () => { S.viewMode = 'written'; refreshSegs(); });
@@ -580,6 +619,24 @@ function wireToolbar() {
 
   document.getElementById('btn-add-segment')?.addEventListener('click', () => openAddSegmentModal());
   document.getElementById('btn-restt-selected')?.addEventListener('click', () => reSttSelected());
+  document.getElementById('btn-select-all')?.addEventListener('click', () => { S.segments.forEach(s => S.selected.add(s.id)); renderSegments(); });
+  document.getElementById('btn-deselect-all')?.addEventListener('click', () => { S.selected.clear(); renderSegments(); });
+  document.getElementById('btn-export-audio')?.addEventListener('click', () => exportSelectedAudio());
+  document.getElementById('btn-delete-selected')?.addEventListener('click', async () => {
+    const ids = [...S.selected];
+    if (!ids.length) return;
+    if (!confirm(`確定刪除 ${ids.length} 個選取段落？`)) return;
+    try {
+      const delRes = await api('DELETE', `/tasks/${S.taskId}/segments?ids=${ids.join(',')}`);
+      if (delRes.deleted_count > 0) {
+        S.segments = S.segments.filter(s => !S.selected.has(s.id));
+        S.selected.clear();
+        renderSegments();
+      } else {
+        toast('段落不存在', 'warn');
+      }
+    } catch (e) { toast('刪除失敗：' + e.message, 'err'); }
+  });
 }
 
 function refreshSegs() {
@@ -619,10 +676,14 @@ async function setupAudio() {
 
   document.getElementById('btn-play')?.addEventListener('click', togglePlay);
   document.getElementById('btn-stop')?.addEventListener('click', stopAudio);
+  document.getElementById('speed-select')?.addEventListener('change', (e) => {
+    if (S.audioEl) S.audioEl.playbackRate = parseFloat(e.target.value);
+  });
   const seek = document.getElementById('seek-bar');
   seek?.addEventListener('input', () => {
     if (S.audioEl && S.audioEl.duration) {
-      S.audioEl.currentTime = seek.value / 100;
+      const maxVal = parseFloat(seek.max);
+      S.audioEl.currentTime = (seek.value / maxVal) * S.audioEl.duration;
       updatePlayhead();
     }
   });
@@ -729,7 +790,7 @@ function drawWaveform() {
   }
 
   const dur = S.task?.audio_duration_sec || 0;
-  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+  if (dur <= 0) { console.warn('drawWaveform: dur<=0'); return; }
   const zDur = dur * (S.zoomEnd - S.zoomStart);
   ctx.fillStyle = '#94A3B8';
   ctx.font = '10px system-ui';
@@ -746,11 +807,40 @@ function updatePlayhead() {
   if (!ph || !S.audioEl || !S.audioEl.duration) return;
   const dur = S.audioEl.duration;
   const t = S.audioEl.currentTime;
-  const zDur = dur * (S.zoomEnd - S.zoomStart);
   const zStart = S.zoomStart * dur;
+  const zDur = dur * (S.zoomEnd - S.zoomStart);
   const pct = zDur > 0 ? ((t - zStart) / zDur) * 100 : 0;
-  ph.style.left = Math.max(0, Math.min(100, pct)) + '%';
-  if (pct < 0 || pct > 100) ph.style.display = 'none';
+
+  // 播放時自動跟隨：當播放線接近可見區域邊緣時平移視窗
+  if (!S.audioEl.paused) {
+    const durPct = t / dur;
+    const viewRange = S.zoomEnd - S.zoomStart;
+    if (viewRange < 1) {  // 有縮放時才跟隨
+      const threshold = 0.7;  // 播放線超過可見範圍右側 70% 時向右滾動
+      const leftMargin = 0.25; // 滾動後播放線停在左側 25% 位置
+
+      if (durPct > S.zoomStart + viewRange * threshold) {
+        S.zoomStart = durPct - viewRange * leftMargin;
+        S.zoomEnd = S.zoomStart + viewRange;
+        if (S.zoomEnd > 1) { S.zoomEnd = 1; S.zoomStart = 1 - viewRange; }
+        if (S.zoomStart < 0) { S.zoomStart = 0; S.zoomEnd = viewRange; }
+        drawWaveform();
+        drawCutMarkers();
+      } else if (durPct < S.zoomStart + viewRange * 0.1) {
+        S.zoomStart = durPct - viewRange * 0.1;
+        S.zoomEnd = S.zoomStart + viewRange;
+        if (S.zoomStart < 0) { S.zoomStart = 0; S.zoomEnd = viewRange; }
+        drawWaveform();
+        drawCutMarkers();
+      }
+    }
+  }
+
+  const finalZStart = S.zoomStart * dur;
+  const finalZDur = dur * (S.zoomEnd - S.zoomStart);
+  const finalPct = finalZDur > 0 ? ((t - finalZStart) / finalZDur) * 100 : 0;
+  ph.style.left = Math.max(0, Math.min(100, finalPct)) + '%';
+  if (finalPct < 0 || finalPct > 100) ph.style.display = 'none';
   else ph.style.display = '';
 }
 
@@ -776,19 +866,22 @@ function onWaveformClick(e) {
 // ═══════════════════════════════════════════
 // Cutting
 // ═══════════════════════════════════════════
-function toggleCutMode() {
-  S.cutMode = !S.cutMode;
-  S._dragPointIdx = -1;
+function setCutModeUI() {
   document.getElementById("btn-cut").classList.toggle("active", S.cutMode);
   document.getElementById("cut-info").style.display = S.cutMode ? "" : "none";
   document.getElementById("btn-confirm-cut").style.display = S.cutMode ? "" : "none";
   document.getElementById("btn-cancel-cut").style.display = S.cutMode ? "" : "none";
-  const btnUndo2 = document.getElementById("btn-undo-cut");
-  if (btnUndo2) btnUndo2.style.display = (S.cutMode && S.cutPoints.length > 0) ? "" : "none";
+  const btnUndo = document.getElementById("btn-undo-cut");
+  if (btnUndo) btnUndo.style.display = (S.cutMode && S.cutPoints.length > 0) ? "" : "none";
   document.getElementById("waveform-area").classList.toggle("cut-mode", S.cutMode);
   document.getElementById("waveform-area").style.height = S.cutMode ? "160px" : "120px";
   drawWaveform();
   drawCutMarkers();
+}
+
+function toggleCutMode() {
+  S.cutMode = !S.cutMode;
+  setCutModeUI();
 }
 
 function addCutPoint(e) {
@@ -825,7 +918,7 @@ function drawCutMarkers() {
   container.innerHTML = "";
 
   const dur = S.task?.audio_duration_sec || 0;
-  if (dur <= 0) return toast("音檔長度不可用，請重新載入", "err");
+  if (dur <= 0) { console.warn('drawCutMarkers: dur<=0'); return; }
   const zStart = S.zoomStart * dur;
   const zDur = dur * (S.zoomEnd - S.zoomStart);
   const toPct = (t) => zDur > 0 ? ((t - zStart) / zDur) * 100 : 0;
@@ -907,19 +1000,18 @@ document.addEventListener("mouseup", () => {
 async function confirmCut() {
   if (S.cutPoints.length === 0) return toast("請先在波形上點擊標註切割點", "warn");
   try {
-    const res = await api("POST", `/tasks/${S.taskId}/split`, { cut_points: S.cutPoints });
-    S.segments.push(...res.segments);
-    S.segments.sort((a, b) => a.start - b.start);
-    S.segments.forEach((s, i) => s.id = i);
-    S.spkMap = {};
+    await api("POST", `/tasks/${S.taskId}/split`, { cut_points: S.cutPoints });
+    // 從後端重新載入完整段落列表（後端已合併新舊段落並重新排序）
+    const task = await api('GET', `/tasks/${S.taskId}`);
+    S.segments = task.result?.segments || [];
+    S.spkMap = task.result?.speaker_map || {};
     S.selected.clear();
     S.cutPoints = [];
     S.cutMode = false;
-    S.cutPoints = [];
-    S.cutMode = false;
+    setCutModeUI();
     renderSegments();
     renderSpeakers();
-    toast("已新增 " + res.segment_count + " 段", "");
+    toast("已切割為 " + S.segments.length + " 段", "");
   } catch (e) { toast("切割失敗：" + e.message, "err"); }
 }
 
@@ -939,11 +1031,13 @@ function renderSegments() {
         <div class="seg-body">
           <div class="seg-meta">
             <span class="seg-ts">${fmtTime(s.start)}</span>
-            ${s.speaker ? `<span class="seg-spk">${esc(s.speaker)}</span>` : ''}
+            ${s.speaker ? `<span class="seg-spk">${esc(S.spkMap[s.speaker]?.name || s.speaker)}</span>` : ''}
             <span class="seg-status ${s.stt_status==='completed'?'done':s.stt_status==='failed'?'fail':'wait'}">${sttIcon}</span>
           </div>
-          <div class="seg-text">${esc(s.stt_status === 'pending' ? (fmtTime(s.start) + ' ~ ' + fmtTime(s.end)) : (s.text || '（尚無文字）'))}</div>
-          ${S.viewMode === 'compare' || S.viewMode === 'written' ? `<div class="seg-written">${esc(s.written || '')}</div>` : ''}
+          <div class="seg-text" data-sid="${s.id}">${esc(s.stt_status === 'pending' ? (fmtTime(s.start) + ' ~ ' + fmtTime(s.end)) : (s.text || '（尚無文字）'))}</div>
+          ${s.id >= 0 ? `<button class="del-seg-btn" data-sid="${s.id}" title="刪除此段落" style="position:absolute;top:4px;right:4px;font-size:10px;padding:0 4px;border:none;background:transparent;color:var(--danger);opacity:0.4;cursor:pointer;">✕</button>` : ''}
+          ${s.stt_status === 'failed' ? `<button class="retry-stt-btn" data-sid="${s.id}" style="font-size:11px;padding:2px 8px;margin-top:4px;color:var(--danger);">🔄 重試</button>` : ''}
+          ${S.viewMode === 'compare' || S.viewMode === 'written' ? `<div class="seg-written">${esc(s.text_written || '')}</div>` : ''}
         </div>
       </div>
     `;
@@ -953,6 +1047,7 @@ function renderSegments() {
   list.querySelectorAll('.seg-row').forEach(row => {
     const sid = parseInt(row.dataset.sid);
     row.addEventListener('click', (e) => {
+      if (e.target.closest('.del-seg-btn, .retry-stt-btn, .seg-ts')) return;
       if (e.ctrlKey || e.metaKey) {
         S.selected.has(sid) ? S.selected.delete(sid) : S.selected.add(sid);
       } else {
@@ -971,8 +1066,101 @@ function renderSegments() {
     });
   });
 
+  // 事件委派：重試按鈕
+  list.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.retry-stt-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    const sid = parseInt(btn.dataset.sid);
+    btn.disabled = true; btn.textContent = '處理中...';
+    try {
+      const res = await api('POST', `/tasks/${S.taskId}/stt-segment`, { segment_id: sid });
+      const idx = S.segments.findIndex(s => s.id === sid);
+      if (idx >= 0) {
+        S.segments[idx].text = res.text;
+        S.segments[idx].stt_status = 'completed';
+      }
+      renderSegments();
+      toast('重試成功', '');
+    } catch (e) {
+      toast('重試失敗：' + e.message, 'err');
+      renderSegments();
+    }
+  });
+
+  // 事件委派：雙擊編輯段落文字
+  list.addEventListener('dblclick', async (e) => {
+    const segText = e.target.closest('.seg-text');
+    if (!segText || !segText.dataset.sid) return;
+    if (segText.contentEditable === 'true') return; // 已在編輯
+    e.stopPropagation();
+
+    const sid = parseInt(segText.dataset.sid);
+    const seg = S.segments.find(s => s.id === sid);
+    if (!seg || seg.stt_status !== 'completed') return;
+
+    const origText = seg.text;
+    segText.contentEditable = 'true';
+    segText.focus();
+    // 選取全部文字
+    const range = document.createRange();
+    range.selectNodeContents(segText);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const finishEdit = async (save) => {
+      segText.contentEditable = 'false';
+      if (save) {
+        const newText = segText.textContent.trim();
+        if (newText && newText !== origText) {
+          try {
+            await api('PUT', `/tasks/${S.taskId}/segments/${sid}`, { text: newText });
+            seg.text = newText;
+          } catch (e) {
+            segText.textContent = origText;
+            toast('儲存失敗：' + e.message, 'err');
+          }
+        } else if (!newText) {
+          segText.textContent = origText;
+        }
+      } else {
+        segText.textContent = origText;
+      }
+    };
+
+    segText.addEventListener('blur', () => finishEdit(true), { once: true });
+    segText.addEventListener('keydown', (k) => {
+      if (k.key === 'Enter' && !k.shiftKey) { k.preventDefault(); segText.blur(); }
+      if (k.key === 'Escape') { finishEdit(false); segText.blur(); }
+    }, { once: true });
+  });
+
+  // 事件委派：刪除單一段落
+  list.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.del-seg-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    const sid = parseInt(btn.dataset.sid);
+    if (!confirm(`確定刪除段落 #${sid}？`)) return;
+    try {
+      const delRes = await api('DELETE', `/tasks/${S.taskId}/segments?ids=${sid}`);
+      if (delRes.deleted_count > 0) {
+        S.segments = S.segments.filter(s => s.id !== sid);
+        S.selected.delete(sid);
+        renderSegments();
+      } else {
+        toast('段落不存在', 'warn');
+      }
+    } catch (e) { toast('刪除失敗：' + e.message, 'err'); }
+  });
+
   const btn = document.getElementById('btn-restt-selected');
   if (btn) btn.classList.toggle('hidden', S.selected.size === 0);
+  ['btn-export-audio','btn-delete-selected','exp-txt-sel','exp-srt-sel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', S.selected.size === 0);
+  });
 }
 
 function renderSpeakers() {
@@ -994,9 +1182,11 @@ function renderSpeakers() {
   `;
 
   panel.querySelectorAll('.spk-name-input').forEach(inp => {
-    inp.addEventListener('change', async () => {
+    inp.addEventListener('blur', async () => {
       const sid = inp.dataset.sid;
       const name = inp.value.trim();
+      const orig = S.spkMap[sid]?.name || '';
+      if (name === orig) return;
       try {
         const body = {}; body[sid] = name;
         const res = await api('PUT', `/tasks/${S.taskId}/speakers`, body);
@@ -1033,18 +1223,15 @@ async function autoSplit10Min() {
   }
 
   try {
-    const res = await api('POST', `/tasks/${S.taskId}/split`, { cut_points: cutPoints });
-    S.segments = res.segments;
-    S.spkMap = {};
+    await api('POST', `/tasks/${S.taskId}/split`, { cut_points: cutPoints });
+    const task = await api('GET', `/tasks/${S.taskId}`);
+    S.segments = task.result?.segments || [];
+    S.spkMap = task.result?.speaker_map || {};
     S.selected.clear();
     S.cutPoints = [];
     S.cutMode = false;
-    S.cutPoints = [];
-    S.cutMode = false;
-    S.cutPoints = [];
-    S.cutMode = false;
     renderWorkspace();
-    toast(`已自動切成 ${res.segment_count} 段（每10分鐘）`, '');
+    toast(`已自動切成 ${S.segments.length} 段（每10分鐘）`, '');
   } catch (e) { toast('自動分段失敗：' + e.message, 'err'); }
 }
 
@@ -1110,7 +1297,6 @@ async function runBatchStt(pending) {
   document.getElementById('batch-stt-overlay')?.remove();
 
   try {
-    await api('POST', `/tasks/${S.taskId}/diarize`);
     const task = await api('GET', `/tasks/${S.taskId}`);
     S.segments = task.result?.segments || [];
     S.spkMap = task.result?.speaker_map || {};
@@ -1247,7 +1433,10 @@ async function reSttSelected() {
 // Export
 // ═══════════════════════════════════════════
 async function doExport(fmt) {
-  const btn = document.getElementById('exp-txt');
+  const btnMap = { txt: 'exp-txt', srt: 'exp-srt', docx: 'exp-docx' };
+  const btn = document.getElementById(btnMap[fmt] || 'exp-txt');
+  const labelMap = { txt: 'TXT 純文字', srt: 'SRT 字幕', docx: 'DOCX 文檔' };
+  const label = labelMap[fmt] || 'TXT 純文字';
   if (btn) { btn.disabled = true; btn.textContent = '匯出中...'; }
   try {
     const res = await api('POST', `/tasks/${S.taskId}/export`, { format: fmt, language: S.viewMode === 'written' ? 'written' : 'yue' });
@@ -1260,8 +1449,47 @@ async function doExport(fmt) {
     URL.revokeObjectURL(url);
     toast('匯出完成', '');
   } catch (e) { toast(e.message, 'err'); }
-  if (btn) { btn.disabled = false; btn.textContent = 'TXT 純文字'; }
+  if (btn) { btn.disabled = false; btn.textContent = label; }
   document.getElementById('export-menu')?.classList.add('hidden');
+}
+
+async function doExportSelected(fmt) {
+  const ids = [...S.selected];
+  if (!ids.length) return toast('請先選取段落', 'warn');
+  try {
+    const res = await api('POST', `/tasks/${S.taskId}/export`, { format: fmt, language: S.viewMode === 'written' ? 'written' : 'yue', segment_ids: ids });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const name = (S.task?.audio_filename || 'output').replace(/\.[^.]+$/, '') + '_selected.' + fmt;
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    URL.revokeObjectURL(url);
+    toast('匯出完成', '');
+  } catch (e) { toast(e.message, 'err'); }
+  document.getElementById('export-menu')?.classList.add('hidden');
+}
+
+async function exportSelectedAudio() {
+  const ids = [...S.selected];
+  if (ids.length === 0) return toast('請先選擇段落', 'warn');
+  try {
+    const btn = document.getElementById('btn-export-audio');
+    if (btn) { btn.disabled = true; btn.textContent = '匯出中...'; }
+    const res = await api('POST', `/tasks/${S.taskId}/export-audio`, { segment_ids: ids });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const name = (S.task?.audio_filename || 'selection').replace(/\.[^.]+$/, '') + '_selection.wav';
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('音檔匯出完成', '');
+    if (btn) { btn.disabled = false; btn.textContent = '🎵 匯出選擇音檔'; }
+  } catch (e) {
+    document.getElementById('btn-export-audio').disabled = false;
+    document.getElementById('btn-export-audio').textContent = '🎵 匯出選擇音檔';
+    toast('匯出失敗：' + e.message, 'err');
+  }
 }
 
 function openExportModal(fmt) {
@@ -1321,6 +1549,100 @@ function openExportModal(fmt) {
 }
 
 // ═══════════════════════════════════════════
+// 永久設定
+// ═══════════════════════════════════════════
+function openSettingsModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">AI 設定 <button class="icon" id="modal-close">✖</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>提供者</label>
+          <select id="set-provider">
+            <option value="ollama">Ollama（本機）</option>
+            <option value="openai">OpenAI</option>
+            <option value="custom">自訂</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>API 網址</label>
+          <input type="url" id="set-api-base" placeholder="http://localhost:11434/v1">
+        </div>
+        <div class="form-group">
+          <label>模型名稱</label>
+          <input type="text" id="set-model" placeholder="gemma3:12b">
+        </div>
+        <div class="form-group">
+          <label>API Key${' '}<span id="set-key-mask" style="font-size:11px;color:var(--muted);"></span></label>
+          <input type="password" id="set-api-key" placeholder="留空則使用 .env 中的值">
+        </div>
+        <div class="form-group">
+          <label>報告語言</label>
+          <select id="set-report-lang">
+            <option value="zh">繁體中文</option>
+            <option value="yue">粵語口語</option>
+          </select>
+        </div>
+        <div id="set-status" style="margin-top:8px;font-size:12px;color:var(--muted);"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-cancel">關閉</button>
+        <button class="primary" id="modal-save">儲存設定</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // 載入目前設定
+  api('GET', '/settings').then(data => {
+    if (data.llm_provider) document.getElementById('set-provider').value = data.llm_provider;
+    if (data.llm_api_base) document.getElementById('set-api-base').value = data.llm_api_base;
+    if (data.llm_model) document.getElementById('set-model').value = data.llm_model;
+    if (data.llm_api_key) document.getElementById('set-key-mask').textContent = '已設定: ' + data.llm_api_key;
+    if (data.report_language) document.getElementById('set-report-lang').value = data.report_language;
+  }).catch(() => {});
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#modal-close')?.addEventListener('click', close);
+  overlay.querySelector('#modal-cancel')?.addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  overlay.querySelector('#modal-save')?.addEventListener('click', async () => {
+    const body = {
+      llm_provider: document.getElementById('set-provider').value,
+      llm_api_base: document.getElementById('set-api-base').value.trim(),
+      llm_model: document.getElementById('set-model').value.trim(),
+      report_language: document.getElementById('set-report-lang').value,
+    };
+    const key = document.getElementById('set-api-key').value.trim();
+    if (key) body.llm_api_key = key;
+
+    const status = document.getElementById('set-status');
+    const saveBtn = overlay.querySelector('#modal-save');
+    saveBtn.disabled = true;
+    saveBtn.textContent = '儲存中...';
+    try {
+      const res = await api('PUT', '/settings', body);
+      if (res.success) {
+        if (res.settings.llm_api_key) {
+          document.getElementById('set-key-mask').textContent = '已設定: ' + res.settings.llm_api_key;
+        }
+        status.textContent = '✅ 已儲存';
+        status.style.color = 'var(--success)';
+        setTimeout(() => { status.textContent = ''; }, 2500);
+      }
+    } catch (e) {
+      status.textContent = '❌ 儲存失敗: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+    saveBtn.disabled = false;
+    saveBtn.textContent = '儲存設定';
+  });
+}
+
+// ═══════════════════════════════════════════
 // AI Report
 // ═══════════════════════════════════════════
 function openReportModal() {
@@ -1347,6 +1669,13 @@ function openReportModal() {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // 預填已儲存的設定
+  api('GET', '/settings').then(data => {
+    if (data.llm_model) document.getElementById('rep-model').value = data.llm_model;
+    if (data.report_language) document.getElementById('rep-lang').value = data.report_language;
+  }).catch(() => {});
+
   const close = () => overlay.remove();
   overlay.querySelector('#modal-close')?.addEventListener('click', close);
   overlay.querySelector('#modal-cancel')?.addEventListener('click', close);
@@ -1387,6 +1716,8 @@ function openReportModal() {
 // Zoom controls
 // ═══════════════════════════════════════════
 function initZoomControls() {
+  if (S._zoomInited) return;
+  S._zoomInited = true;
   document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
     const mid = (S.zoomStart + S.zoomEnd) / 2;
     const w = (S.zoomEnd - S.zoomStart) * 0.25;
@@ -1413,13 +1744,32 @@ function initZoomControls() {
   });
 
   document.getElementById('waveform-canvas')?.addEventListener('click', onWaveformClick);
+
+  // 波形圖滾輪縮放
+  const wfArea = document.getElementById('waveform-area');
+  wfArea?.addEventListener('wheel', (e) => {
+    if (!S.audioReady) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 0.8 : 1.25;
+    const mid = (S.zoomStart + S.zoomEnd) / 2;
+    let newW = (S.zoomEnd - S.zoomStart) * factor;
+    if (newW > 1) newW = 1;
+    if (newW < 0.01) newW = 0.01;
+    S.zoomStart = Math.max(0, mid - newW / 2);
+    S.zoomEnd = Math.min(1, mid + newW / 2);
+    if (S.zoomEnd - S.zoomStart < newW * 0.99) {
+      if (S.zoomStart === 0) S.zoomEnd = newW;
+      else S.zoomStart = 1 - newW;
+    }
+    drawWaveform();
+    drawCutMarkers();
+    updatePlayhead();
+  }, { passive: false });
 }
 
 // ═══════════════════════════════════════════
 // Init
 // ═══════════════════════════════════════════
-// 全域事件（確保 recovery 路徑也會註冊）
-document.addEventListener("keydown", onKeyboard);
 window.addEventListener("resize", () => {
   if (S.page === "workspace") {
     drawWaveform();
@@ -1443,9 +1793,6 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     togglePlay();
   }
-});
-window.addEventListener("resize", () => {
-  if (S.page === "workspace") { drawWaveform(); drawCutMarkers(); updatePlayhead(); }
 });
 
 (async function init() {

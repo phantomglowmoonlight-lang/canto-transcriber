@@ -1,5 +1,5 @@
 """
-匯出模組：TXT 與 DOCX 格式輸出
+匯出模組：TXT、DOCX 與 SRT 格式輸出
 """
 import logging
 from pathlib import Path
@@ -12,6 +12,45 @@ from app.speaker_registry import SpeakerRegistry
 from app.text_processor import _format_timestamp
 
 logger = logging.getLogger(__name__)
+
+
+def export_srt(
+    segments: list[dict],
+    output_path: Path,
+    audio_filename: str = "",
+    written: bool = False,
+    registry: Optional[SpeakerRegistry] = None,
+) -> Path:
+    """
+    匯出 SRT 字幕檔
+    """
+    lines = []
+    for i, seg in enumerate(segments, 1):
+        # SRT 時間戳格式：HH:MM:SS,mmm
+        def to_srt_ts(sec):
+            h = int(sec // 3600)
+            m = int((sec % 3600) // 60)
+            s = int(sec % 60)
+            ms = int(round((sec - int(sec)) * 1000))
+            if ms >= 1000: ms = 999
+            return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+        speaker = seg.get("speaker", "")
+        if registry:
+            speaker = registry.get_name(speaker)
+        text = seg.get("text_written" if written else "text", "")
+        prefix = f"{speaker}：" if speaker else ""
+        subtitle = f"{prefix}{text}" if prefix else text
+
+        lines.append(str(i))
+        lines.append(f"{to_srt_ts(seg['start'])} --> {to_srt_ts(seg['end'])}")
+        lines.append(subtitle)
+        lines.append("")
+
+    content = "\n".join(lines)
+    output_path.write_text(content, encoding="utf-8-sig")
+    logger.info(f"SRT 匯出完成：{output_path}")
+    return output_path
 
 
 def export_txt(

@@ -1,8 +1,8 @@
 """
-廣東話會議錄音轉文字 — 桌面應用入口
-供 PyInstaller 打包為獨立 exe
+廣東話會議錄音轉文字 — 桌面應用
+啟動 FastAPI 伺服器 + 原生視窗
 """
-from app.desktop import run_desktop
+from app.ng_app import run_app
 
 if __name__ == "__main__":
-    run_desktop()
+    run_app()

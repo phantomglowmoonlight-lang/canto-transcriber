@@ -231,13 +231,27 @@ def save_audio_temp(audio: AudioSegment) -> Path:
     return Path(tmp.name)
 
 
-def compute_waveform_peaks(wav_path: Path, num_peaks: int = 2000) -> list[float]:
+def compute_waveform_peaks(wav_path: Path, num_peaks: int = 20000) -> list[float]:
     """
     計算波形峰值陣列（用於前端 Canvas 繪製）
 
-    num_peaks: 回傳的峰值數量（對應 Canvas 寬度的像素數）
+    num_peaks: 回傳的峰值數量，預設 20000（每條 bar ~0.17 秒）
     回傳值為 0~1 之間的 float 陣列
+
+    會將結果快取在 wav_path 同目錄的 .peaks 檔案中，
+    避免每次請求都重新讀取整個音檔。
     """
+    cache_path = wav_path.with_suffix(wav_path.suffix + ".peaks.npy")
+
+    # 檢查快取是否匹配請求的峰值數量
+    if cache_path.exists():
+        try:
+            cached = np.load(cache_path)
+            if len(cached) == num_peaks:
+                return cached.tolist()
+        except Exception:
+            pass
+
     audio = AudioSegment.from_file(str(wav_path))
     samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
 
@@ -270,6 +284,12 @@ def compute_waveform_peaks(wav_path: Path, num_peaks: int = 2000) -> list[float]
         peaks = peaks[:num_peaks]
     elif len(peaks) < num_peaks:
         peaks.extend([0.0] * (num_peaks - len(peaks)))
+
+    # 寫入快取
+    try:
+        np.save(cache_path, np.array(peaks, dtype=np.float32))
+    except Exception:
+        pass
 
     return peaks
 

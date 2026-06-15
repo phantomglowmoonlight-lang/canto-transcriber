@@ -67,3 +67,15 @@ class Settings(BaseSettings):
 
 # 全域單例
 settings = Settings()
+
+# 載入使用者 UI 設定（覆蓋 .env 中的值）
+try:
+    from app.settings_manager import load_ui_settings, UI_SETTINGS_KEYS
+    ui_settings = load_ui_settings(settings.tasks_path)
+    for key, val in ui_settings.items():
+        if hasattr(settings, key):
+            setattr(settings, key, val)
+            logger = __import__("logging").getLogger(__name__)
+            logger.info(f"從 settings.json 載入設定：{key}")
+except Exception:
+    pass  # 非致命，使用 .env 中的值
